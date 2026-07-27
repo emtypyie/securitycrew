@@ -13,6 +13,17 @@ export default function PopupApp() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [error, setError] = useState<string | null>(null);
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const checkOllama = useCallback(async () => {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: "CHECK_OLLAMA" });
+      setOllamaAvailable(resp?.available ?? false);
+    } catch {
+      setOllamaAvailable(false);
+    }
+  }, []);
 
   const analyzeCurrentTab = useCallback(async () => {
     setLoading(true);
@@ -36,7 +47,7 @@ export default function PopupApp() {
       } else {
         setError("Failed to analyze this page.");
       }
-    } catch (e) {
+    } catch {
       setError("Extension error. Please try again.");
     }
     setLoading(false);
@@ -51,10 +62,28 @@ export default function PopupApp() {
     }
   }, []);
 
+  const refreshAI = useCallback(async () => {
+    if (!report) return;
+    setAiLoading(true);
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: "REFRESH_AI",
+        url: report.url,
+      });
+      if (resp) {
+        setReport(resp);
+      }
+    } catch {
+      // ignore
+    }
+    setAiLoading(false);
+  }, [report]);
+
   useEffect(() => {
     analyzeCurrentTab();
     loadHistory();
-  }, [analyzeCurrentTab, loadHistory]);
+    checkOllama();
+  }, [analyzeCurrentTab, loadHistory, checkOllama]);
 
   const riskColor = (level: string) => {
     switch (level) {
@@ -77,6 +106,11 @@ export default function PopupApp() {
               </svg>
             </div>
             <span className="font-bold text-lg">CompassCrew</span>
+            {ollamaAvailable !== null && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${ollamaAvailable ? "bg-green-900 text-green-300" : "bg-gray-800 text-gray-500"}`}>
+                {ollamaAvailable ? "AI Ready" : "No AI"}
+              </span>
+            )}
           </div>
           <button
             onClick={analyzeCurrentTab}
@@ -137,8 +171,56 @@ export default function PopupApp() {
 
                 {report.aiSummary && (
                   <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-blue-400 mb-1">AI Analysis</p>
-                    <p className="text-sm text-gray-300 leading-relaxed">{report.aiSummary}</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-semibold text-blue-400">
+                        {ollamaAvailable ? "AI Analysis" : "Security Summary"}
+                      </p>
+                      <button
+                        onClick={refreshAI}
+                        disabled={aiLoading}
+                        className="text-[10px] text-gray-500 hover:text-blue-400 disabled:text-gray-700 transition-colors"
+                      >
+                        {aiLoading ? "Generating..." : "Refresh"}
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{report.aiSummary}</p>
+                    {!ollamaAvailable && (
+                      <p className="text-[10px] text-gray-600 mt-2">
+                        Install Ollama + llama3.2:3b for AI-powered analysis
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {report.score.breakdown && (
+                  <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Score Breakdown</p>
+                    <div className="space-y-1.5">
+                      {[
+                        { label: "HTTPS", score: report.score.breakdown.https, weight: 15 },
+                        { label: "TLS/SSL", score: report.score.breakdown.tls, weight: 20 },
+                        { label: "Security Headers", score: report.score.breakdown.headers, weight: 25 },
+                        { label: "Reputation", score: report.score.breakdown.reputation, weight: 15 },
+                        { label: "Domain Age", score: report.score.breakdown.domainAge, weight: 5 },
+                        { label: "Phishing Checks", score: report.score.breakdown.phishing, weight: 10 },
+                        { label: "Form Safety", score: report.score.breakdown.formSafety, weight: 10 },
+                      ].map((item) => (
+                        <div key={item.label} className="flex items-center gap-2">
+                          <span className="text-[11px] text-gray-400 w-28 shrink-0">{item.label}</span>
+                          <div className="flex-1 bg-gray-800 rounded-full h-1.5">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                item.score >= 80 ? "bg-green-500" :
+                                item.score >= 50 ? "bg-yellow-500" :
+                                item.score >= 25 ? "bg-orange-500" : "bg-red-500"
+                              }`}
+                              style={{ width: `${item.score}%` }}
+                            />
+                          </div>
+                          <span className="text-[11px] text-gray-500 w-6 text-right">{item.score}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -146,9 +228,7 @@ export default function PopupApp() {
 
             {activeTab === "headers" && <HeaderList headers={report.headers} />}
             {activeTab === "domain" && <DomainInfoCard domain={report.domain} reputation={report.reputation} tls={report.tls} />}
-            {activeTab === "history" && (
-              <HistoryList history={history} />
-            )}
+            {activeTab === "history" && <HistoryList history={history} />}
             {activeTab === "chat" && <AIChat report={report} />}
           </div>
         </div>

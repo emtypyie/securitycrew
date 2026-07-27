@@ -4,7 +4,7 @@ import { analyzeTLS } from "../services/tls-analyzer";
 import { analyzeDomain, getDomainAge } from "../services/domain-analyzer";
 import { checkReputation } from "../services/reputation-checker";
 import { calculateScore } from "@shared/scoring/engine";
-import { generateSummary } from "../ai/ollama";
+import { generateSummary, chatWithAI, isOllamaAvailable, resetAICache } from "../ai/ollama";
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   enableNotifications: true,
@@ -40,7 +40,7 @@ chrome.webRequest.onHeadersReceived.addListener(
   ["responseHeaders"]
 );
 
-// --- Fetch headers directly via HEAD request (primary method) ---
+// --- Fetch headers directly via fetch (primary method) ---
 async function fetchHeaders(url: string): Promise<Record<string, string>> {
   // First try the webRequest cache
   const cached = headerCache.get(url);
@@ -66,7 +66,7 @@ async function fetchHeaders(url: string): Promise<Record<string, string>> {
     // no-op
   }
 
-  // Try GET request as fallback (won't get cross-origin headers though)
+  // Try GET request as fallback
   try {
     const resp = await fetch(url, {
       method: "GET",
@@ -86,7 +86,7 @@ async function fetchHeaders(url: string): Promise<Record<string, string>> {
 async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   const settings = await getSettings();
 
-  // Fetch headers directly instead of relying on cache
+  // Fetch headers directly
   const responseHeaders = await fetchHeaders(url);
 
   const [tls, domainInfo, reputation] = await Promise.all([
@@ -96,7 +96,6 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   ]);
 
   const domainAge = await getDomainAge(domainInfo.domain, settings.backendUrl || undefined);
-
   const headers = analyzeHeaders(responseHeaders);
 
   const score = calculateScore(
@@ -120,31 +119,30 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
     score,
   };
 
-  try {
-    report.aiSummary = await generateSummary(report);
-  } catch {
-    report.aiSummary = undefined;
-  }
+  // Generate AI summary (Ollama if available, otherwise smart fallback)
+  report.aiSummary = await generateSummary(report);
 
+  // Save report
   await chrome.storage.local.set({ [`report_${url}`]: report });
 
+  // Update history
   const historyEntry = {
     url,
     score: score.total,
     riskLevel: score.riskLevel,
     timestamp: Date.now(),
   };
-
   const { history = [] } = await chrome.storage.local.get("history");
   const updated = [historyEntry, ...history.filter((h: { url: string }) => h.url !== url)].slice(0, 100);
   await chrome.storage.local.set({ history: updated });
 
+  // Notification for dangerous sites
   if (settings.enableNotifications && score.riskLevel === "dangerous") {
     chrome.notifications.create(`warning-${tabId}`, {
       type: "basic",
       iconUrl: "icons/icon128.png",
       title: "CompassCrew: Dangerous Site Detected",
-      message: `${new URL(url).hostname} has a security score of ${score.total}/100. This site may be unsafe.`,
+      message: `${new URL(url).hostname} scored ${score.total}/100. This site may be unsafe.`,
     });
   }
 
@@ -156,6 +154,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ANALYZE_URL") {
     analyzeTab(message.tabId || 0, message.url).then((report) => {
       sendResponse(report);
+    });
+    return true;
+  }
+
+  if (message.type === "REFRESH_AI") {
+    // Re-run AI summary on an existing report
+    chrome.storage.local.get(`report_${message.url}`).then(async (data) => {
+      const report = data[`report_${message.url}`];
+      if (report) {
+        report.aiSummary = await generateSummary(report);
+        await chrome.storage.local.set({ [`report_${message.url}`]: report });
+        sendResponse(report);
+      } else {
+        sendResponse(null);
+      }
+    });
+    return true;
+  }
+
+  if (message.type === "CHECK_OLLAMA") {
+    isOllamaAvailable().then((available) => {
+      sendResponse({ available });
     });
     return true;
   }
@@ -175,7 +195,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "CHAT_AI") {
-    chatWithAIWrapper(message.messages, message.report).then((reply) => {
+    chatWithAI(message.messages, message.report).then((reply) => {
       sendResponse({ reply });
     });
     return true;
@@ -189,6 +209,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_SETTINGS") {
+    resetAICache();
     chrome.storage.local.set({ settings: message.settings }).then(() => {
       sendResponse({ success: true });
     });
@@ -196,46 +217,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-async function chatWithAIWrapper(
-  messages: { role: string; content: string }[],
-  report?: SecurityReport
-): Promise<string> {
-  const settings = await getSettings();
-
-  try {
-    const response = await fetch(`${settings.ollamaUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: settings.ollamaModel,
-        messages: [
-          {
-            role: "system",
-            content: `You are a friendly cybersecurity advisor. Keep answers concise and non-technical. ${
-              report
-                ? `Current site: ${report.url} | Score: ${report.score.total}/100 | Grade: ${report.score.grade}`
-                : ""
-            }`,
-          },
-          ...messages,
-        ],
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) throw new Error("Ollama failed");
-    const data = await response.json();
-    return data.message?.content || "No response from AI.";
-  } catch {
-    return "AI unavailable. Make sure Ollama is running with llama3.2:3b loaded.";
-  }
-}
-
 // --- Auto-analyze on tab changes ---
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  const tab = await chrome.tabs.get(activeInfo.tabId);
-  if (tab.url && tab.url.startsWith("http")) {
-    analyzeTab(activeInfo.tabId, tab.url);
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    if (tab.url && tab.url.startsWith("http")) {
+      analyzeTab(activeInfo.tabId, tab.url);
+    }
+  } catch {
+    // tab might not exist
   }
 });
 
