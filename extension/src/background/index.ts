@@ -20,13 +20,12 @@ async function getSettings(): Promise<ExtensionSettings> {
   return { ...DEFAULT_SETTINGS, ...stored.settings };
 }
 
-const headerCache = new Map<string, { headers: Record<string, string>; timestamp: number }>();
-const CACHE_TTL = 300000; // 5 minutes
+// --- Header collection via webRequest (best-effort cache) ---
+const headerCache = new Map<string, Record<string, string>>();
 
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId === -1) return;
-
     const headers: Record<string, string> = {};
     if (details.responseHeaders) {
       for (const h of details.responseHeaders) {
@@ -35,24 +34,60 @@ chrome.webRequest.onHeadersReceived.addListener(
         }
       }
     }
-
-    headerCache.set(details.url, { headers, timestamp: Date.now() });
-
-    chrome.tabs.sendMessage(details.tabId, {
-      type: "HEADERS_COLLECTED",
-      url: details.url,
-      headers,
-    });
+    headerCache.set(details.url, headers);
   },
   { urls: ["<all_urls>"] },
   ["responseHeaders"]
 );
 
+// --- Fetch headers directly via HEAD request (primary method) ---
+async function fetchHeaders(url: string): Promise<Record<string, string>> {
+  // First try the webRequest cache
+  const cached = headerCache.get(url);
+  if (cached && Object.keys(cached).length > 0) {
+    return cached;
+  }
+
+  // Try HEAD request to get headers
+  try {
+    const resp = await fetch(url, {
+      method: "HEAD",
+      mode: "no-cors",
+      signal: AbortSignal.timeout(5000),
+    });
+    const headers: Record<string, string> = {};
+    resp.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    if (Object.keys(headers).length > 0) {
+      return headers;
+    }
+  } catch {
+    // no-op
+  }
+
+  // Try GET request as fallback (won't get cross-origin headers though)
+  try {
+    const resp = await fetch(url, {
+      method: "GET",
+      signal: AbortSignal.timeout(5000),
+    });
+    const headers: Record<string, string> = {};
+    resp.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    return headers;
+  } catch {
+    return {};
+  }
+}
+
+// --- Main analysis ---
 async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   const settings = await getSettings();
 
-  const cached = headerCache.get(url);
-  const responseHeaders = cached?.headers;
+  // Fetch headers directly instead of relying on cache
+  const responseHeaders = await fetchHeaders(url);
 
   const [tls, domainInfo, reputation] = await Promise.all([
     analyzeTLS(url, settings.backendUrl || undefined),
@@ -116,6 +151,7 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   return report;
 }
 
+// --- Message handling ---
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ANALYZE_URL") {
     analyzeTab(message.tabId || 0, message.url).then((report) => {
@@ -195,6 +231,7 @@ async function chatWithAIWrapper(
   }
 }
 
+// --- Auto-analyze on tab changes ---
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const tab = await chrome.tabs.get(activeInfo.tabId);
   if (tab.url && tab.url.startsWith("http")) {
