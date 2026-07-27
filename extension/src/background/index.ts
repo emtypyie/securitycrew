@@ -42,40 +42,20 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 // --- Fetch headers directly via fetch (primary method) ---
 async function fetchHeaders(url: string): Promise<Record<string, string>> {
-  // First try the webRequest cache
   const cached = headerCache.get(url);
-  if (cached && Object.keys(cached).length > 0) {
-    return cached;
-  }
+  if (cached && Object.keys(cached).length > 0) return cached;
 
-  // Try HEAD request to get headers
   try {
-    const resp = await fetch(url, {
-      method: "HEAD",
-      mode: "no-cors",
-      signal: AbortSignal.timeout(5000),
-    });
+    const resp = await fetch(url, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) });
     const headers: Record<string, string> = {};
-    resp.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
-    if (Object.keys(headers).length > 0) {
-      return headers;
-    }
-  } catch {
-    // no-op
-  }
+    resp.headers.forEach((value, key) => { headers[key] = value; });
+    if (Object.keys(headers).length > 0) return headers;
+  } catch {}
 
-  // Try GET request as fallback
   try {
-    const resp = await fetch(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(5000),
-    });
+    const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(5000) });
     const headers: Record<string, string> = {};
-    resp.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
+    resp.headers.forEach((value, key) => { headers[key] = value; });
     return headers;
   } catch {
     return {};
@@ -85,8 +65,6 @@ async function fetchHeaders(url: string): Promise<Record<string, string>> {
 // --- Main analysis ---
 async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   const settings = await getSettings();
-
-  // Fetch headers directly
   const responseHeaders = await fetchHeaders(url);
 
   const [tls, domainInfo, reputation] = await Promise.all([
@@ -100,47 +78,34 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
 
   const score = calculateScore(
     url.startsWith("https://"),
-    headers,
-    tls,
+    headers, tls,
     { ...domainInfo, ...domainAge },
     reputation,
     { hasPasswordFields: false, hasCreditCardFields: false, hasLoginForm: false, isHTTP: !url.startsWith("https://"), formCount: 0, warning: null }
   );
 
   const report: SecurityReport = {
-    url,
-    timestamp: Date.now(),
+    url, timestamp: Date.now(),
     https: url.startsWith("https://"),
-    headers,
-    tls,
+    headers, tls,
     domain: { ...domainInfo, ...domainAge },
     reputation,
     forms: { hasPasswordFields: false, hasCreditCardFields: false, hasLoginForm: false, isHTTP: !url.startsWith("https://"), formCount: 0, warning: null },
     score,
   };
 
-  // Generate AI summary (Ollama if available, otherwise smart fallback)
   report.aiSummary = await generateSummary(report);
 
-  // Save report
   await chrome.storage.local.set({ [`report_${url}`]: report });
 
-  // Update history
-  const historyEntry = {
-    url,
-    score: score.total,
-    riskLevel: score.riskLevel,
-    timestamp: Date.now(),
-  };
+  const historyEntry = { url, score: score.total, riskLevel: score.riskLevel, timestamp: Date.now() };
   const { history = [] } = await chrome.storage.local.get("history");
   const updated = [historyEntry, ...history.filter((h: { url: string }) => h.url !== url)].slice(0, 100);
   await chrome.storage.local.set({ history: updated });
 
-  // Notification for dangerous sites
   if (settings.enableNotifications && score.riskLevel === "dangerous") {
     chrome.notifications.create(`warning-${tabId}`, {
-      type: "basic",
-      iconUrl: "icons/icon128.png",
+      type: "basic", iconUrl: "icons/icon128.png",
       title: "CompassCrew: Dangerous Site Detected",
       message: `${new URL(url).hostname} scored ${score.total}/100. This site may be unsafe.`,
     });
@@ -152,14 +117,11 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
 // --- Message handling ---
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ANALYZE_URL") {
-    analyzeTab(message.tabId || 0, message.url).then((report) => {
-      sendResponse(report);
-    });
+    analyzeTab(message.tabId || 0, message.url).then((report) => sendResponse(report));
     return true;
   }
 
   if (message.type === "REFRESH_AI") {
-    // Re-run AI summary on an existing report
     chrome.storage.local.get(`report_${message.url}`).then(async (data) => {
       const report = data[`report_${message.url}`];
       if (report) {
@@ -174,9 +136,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "CHECK_OLLAMA") {
-    isOllamaAvailable().then((available) => {
-      sendResponse({ available });
-    });
+    isOllamaAvailable().then((available) => sendResponse({ available }));
     return true;
   }
 
@@ -188,31 +148,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "GET_HISTORY") {
-    chrome.storage.local.get("history").then((data) => {
-      sendResponse(data.history || []);
-    });
+    chrome.storage.local.get("history").then((data) => sendResponse(data.history || []));
     return true;
   }
 
   if (message.type === "CHAT_AI") {
-    chatWithAI(message.messages, message.report).then((reply) => {
-      sendResponse({ reply });
-    });
+    chatWithAI(message.messages, message.report).then((reply) => sendResponse({ reply }));
     return true;
   }
 
   if (message.type === "GET_SETTINGS") {
-    getSettings().then((settings) => {
-      sendResponse(settings);
-    });
+    getSettings().then((settings) => sendResponse(settings));
     return true;
   }
 
   if (message.type === "SAVE_SETTINGS") {
     resetAICache();
-    chrome.storage.local.set({ settings: message.settings }).then(() => {
-      sendResponse({ success: true });
-    });
+    chrome.storage.local.set({ settings: message.settings }).then(() => sendResponse({ success: true }));
     return true;
   }
 });
@@ -224,9 +176,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     if (tab.url && tab.url.startsWith("http")) {
       analyzeTab(activeInfo.tabId, tab.url);
     }
-  } catch {
-    // tab might not exist
-  }
+  } catch {}
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -234,5 +184,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     analyzeTab(tabId, changeInfo.url);
   }
 });
+
+// --- Startup: check Ollama and auto-pull model ---
+(async () => {
+  console.log("CompassCrew: Checking Ollama availability...");
+  const available = await isOllamaAvailable();
+  if (available) {
+    console.log("CompassCrew: Ollama is running. Checking model...");
+    // Model auto-pull happens inside generateSummary when needed
+  } else {
+    console.log("CompassCrew: Ollama not detected. AI features disabled. Install from ollama.ai");
+  }
+})();
 
 console.log("CompassCrew background service worker loaded.");

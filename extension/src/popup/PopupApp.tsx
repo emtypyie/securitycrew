@@ -15,6 +15,7 @@ export default function PopupApp() {
   const [error, setError] = useState<string | null>(null);
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [modelPulling, setModelPulling] = useState(false);
 
   const checkOllama = useCallback(async () => {
     try {
@@ -36,6 +37,11 @@ export default function PopupApp() {
         return;
       }
 
+      // Show pulling status if AI is available but model might need downloading
+      if (ollamaAvailable === false) {
+        setModelPulling(false);
+      }
+
       const response = await chrome.runtime.sendMessage({
         type: "ANALYZE_URL",
         url: tab.url,
@@ -51,7 +57,8 @@ export default function PopupApp() {
       setError("Extension error. Please try again.");
     }
     setLoading(false);
-  }, []);
+    setModelPulling(false);
+  }, [ollamaAvailable]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -70,19 +77,15 @@ export default function PopupApp() {
         type: "REFRESH_AI",
         url: report.url,
       });
-      if (resp) {
-        setReport(resp);
-      }
-    } catch {
-      // ignore
-    }
+      if (resp) setReport(resp);
+    } catch {}
     setAiLoading(false);
   }, [report]);
 
   useEffect(() => {
+    checkOllama();
     analyzeCurrentTab();
     loadHistory();
-    checkOllama();
   }, [analyzeCurrentTab, loadHistory, checkOllama]);
 
   const riskColor = (level: string) => {
@@ -93,6 +96,35 @@ export default function PopupApp() {
       case "dangerous": return "text-red-500";
       default: return "text-gray-500";
     }
+  };
+
+  const aiStatusBadge = () => {
+    if (ollamaAvailable === null) {
+      return (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-500">
+          Checking...
+        </span>
+      );
+    }
+    if (modelPulling) {
+      return (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-900 text-yellow-300 animate-pulse">
+          Downloading AI model...
+        </span>
+      );
+    }
+    if (ollamaAvailable) {
+      return (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-900 text-green-300">
+          AI Ready
+        </span>
+      );
+    }
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-500">
+        No AI
+      </span>
+    );
   };
 
   return (
@@ -106,11 +138,7 @@ export default function PopupApp() {
               </svg>
             </div>
             <span className="font-bold text-lg">CompassCrew</span>
-            {ollamaAvailable !== null && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${ollamaAvailable ? "bg-green-900 text-green-300" : "bg-gray-800 text-gray-500"}`}>
-                {ollamaAvailable ? "AI Ready" : "No AI"}
-              </span>
-            )}
+            {aiStatusBadge()}
           </div>
           <button
             onClick={analyzeCurrentTab}
@@ -124,7 +152,14 @@ export default function PopupApp() {
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
           <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">Analyzing security posture...</p>
+          <p className="text-gray-400 text-sm">
+            {modelPulling ? "Downloading AI model (first time only)..." : "Analyzing security posture..."}
+          </p>
+          {modelPulling && (
+            <p className="text-gray-600 text-xs text-center px-8">
+              llama3.2:3b is being downloaded via Ollama. This only happens once.
+            </p>
+          )}
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-20 gap-4 px-6">
@@ -185,9 +220,19 @@ export default function PopupApp() {
                     </div>
                     <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{report.aiSummary}</p>
                     {!ollamaAvailable && (
-                      <p className="text-[10px] text-gray-600 mt-2">
-                        Install Ollama + llama3.2:3b for AI-powered analysis
-                      </p>
+                      <div className="mt-3 pt-2 border-t border-gray-800">
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          For AI-powered analysis, install Ollama:
+                        </p>
+                        <code className="text-[10px] text-blue-400 mt-1 block">
+                          1. ollama.ai {"->"} install{"\n"}
+                          2. ollama pull llama3.2:3b{"\n"}
+                          3. ollama serve
+                        </code>
+                        <p className="text-[10px] text-gray-600 mt-1">
+                          The model auto-downloads on first use.
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
@@ -197,13 +242,13 @@ export default function PopupApp() {
                     <p className="text-xs font-semibold text-gray-400 mb-2">Score Breakdown</p>
                     <div className="space-y-1.5">
                       {[
-                        { label: "HTTPS", score: report.score.breakdown.https, weight: 15 },
-                        { label: "TLS/SSL", score: report.score.breakdown.tls, weight: 20 },
-                        { label: "Security Headers", score: report.score.breakdown.headers, weight: 25 },
-                        { label: "Reputation", score: report.score.breakdown.reputation, weight: 15 },
-                        { label: "Domain Age", score: report.score.breakdown.domainAge, weight: 5 },
-                        { label: "Phishing Checks", score: report.score.breakdown.phishing, weight: 10 },
-                        { label: "Form Safety", score: report.score.breakdown.formSafety, weight: 10 },
+                        { label: "HTTPS", score: report.score.breakdown.https },
+                        { label: "TLS/SSL", score: report.score.breakdown.tls },
+                        { label: "Security Headers", score: report.score.breakdown.headers },
+                        { label: "Reputation", score: report.score.breakdown.reputation },
+                        { label: "Domain Age", score: report.score.breakdown.domainAge },
+                        { label: "Phishing Checks", score: report.score.breakdown.phishing },
+                        { label: "Form Safety", score: report.score.breakdown.formSafety },
                       ].map((item) => (
                         <div key={item.label} className="flex items-center gap-2">
                           <span className="text-[11px] text-gray-400 w-28 shrink-0">{item.label}</span>

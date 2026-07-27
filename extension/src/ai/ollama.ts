@@ -1,6 +1,9 @@
 import type { SecurityReport, ChatMessage } from "@shared/types";
 
 let cachedSettings: { ollamaUrl: string; ollamaModel: string } | null = null;
+let ollamaAvailable: boolean | null = null;
+let modelReady: boolean | null = null;
+let pullInProgress = false;
 
 async function getSettings(): Promise<{ ollamaUrl: string; ollamaModel: string }> {
   if (cachedSettings) return cachedSettings;
@@ -17,9 +20,13 @@ async function getSettings(): Promise<{ ollamaUrl: string; ollamaModel: string }
   }
 }
 
-// Check if Ollama is reachable
-let ollamaAvailable: boolean | null = null;
+export function resetAICache(): void {
+  cachedSettings = null;
+  ollamaAvailable = null;
+  modelReady = null;
+}
 
+// --- Check if Ollama is reachable ---
 export async function isOllamaAvailable(): Promise<boolean> {
   if (ollamaAvailable !== null) return ollamaAvailable;
   const settings = await getSettings();
@@ -29,6 +36,9 @@ export async function isOllamaAvailable(): Promise<boolean> {
       signal: AbortSignal.timeout(3000),
     });
     ollamaAvailable = resp.ok;
+    if (ollamaAvailable) {
+      await checkModelReady();
+    }
     return ollamaAvailable;
   } catch {
     ollamaAvailable = false;
@@ -36,167 +46,284 @@ export async function isOllamaAvailable(): Promise<boolean> {
   }
 }
 
-// Reset cache (called when settings change)
-export function resetAICache(): void {
-  cachedSettings = null;
-  ollamaAvailable = null;
+// --- Check if the model is installed ---
+async function checkModelReady(): Promise<boolean> {
+  if (modelReady !== null) return modelReady;
+  const settings = await getSettings();
+  try {
+    const resp = await fetch(`${settings.ollamaUrl}/api/tags`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    const models = data.models || [];
+    modelReady = models.some((m: any) =>
+      m.name === settings.ollamaModel ||
+      m.name === `${settings.ollamaModel}:latest` ||
+      m.name?.startsWith(settings.ollamaModel)
+    );
+    return modelReady ?? false;
+  } catch {
+    return false;
+  }
 }
 
-function buildReportPrompt(report: SecurityReport): string {
-  const presentHeaders = report.headers.filter((h) => h.present).map((h) => h.name);
-  const missingHeaders = report.headers.filter((h) => !h.present).map((h) => h.name);
+// --- Auto-pull the model if not installed ---
+async function ensureModel(): Promise<boolean> {
+  if (modelReady) return true;
+  if (pullInProgress) return false;
 
-  return `Analyze this website's security and give a plain-English summary.
+  const available = await isOllamaAvailable();
+  if (!available) return false;
 
-Website: ${report.url}
-Security Score: ${report.score.total}/100 (Grade: ${report.score.grade}, Risk: ${report.score.riskLevel})
-HTTPS: ${report.https ? "Yes" : "NO — data is unencrypted"}
-TLS Certificate: ${report.tls.valid ? "Valid" : "INVALID"}${report.tls.issuer ? `, Issuer: ${report.tls.issuer}` : ""}${report.tls.protocol ? `, Protocol: ${report.tls.protocol}` : ""}
-Present Headers (${presentHeaders.length}/${report.headers.length}): ${presentHeaders.join(", ") || "None"}
-Missing Headers: ${missingHeaders.join(", ") || "None"}
-Domain: ${report.domain.domain}${report.domain.ageDays ? `, Age: ${report.domain.ageDays} days` : ""}
-Phishing Signals: ${[
-  report.domain.suspiciousTLD && "Suspicious TLD",
-  report.domain.typosquatting && "Typosquatting",
-  report.domain.homographAttack && "Homograph Attack",
-  report.domain.ipBasedURL && "IP-based URL",
-  report.domain.excessiveSubdomains && "Too many subdomains",
-].filter(Boolean).join(", ") || "None"}
-Reputation: ${report.reputation.status}
-Forms: ${report.forms.hasPasswordFields ? "Password fields detected" : "None"}${report.forms.isHTTP ? " (UNENCRYPTED)" : ""}
+  const ready = await checkModelReady();
+  if (ready) return true;
 
-Write 3-5 sentences. Start with the overall assessment. Mention specific issues found. End with a clear recommendation.`;
-}
-
-export async function generateSummary(report: SecurityReport): Promise<string> {
+  // Pull the model
+  pullInProgress = true;
   const settings = await getSettings();
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    const response = await fetch(`${settings.ollamaUrl}/api/chat`, {
+    const resp = await fetch(`${settings.ollamaUrl}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: settings.ollamaModel,
-        messages: [
-          {
-            role: "system",
-            content: `You are a cybersecurity advisor named CompassCrew. You explain website security in simple, everyday language. Be specific about what you find. Never use technical jargon without explaining it. Keep responses under 100 words.`,
-          },
-          { role: "user", content: buildReportPrompt(report) },
-        ],
-        stream: false,
-      }),
-      signal: controller.signal,
+      body: JSON.stringify({ name: settings.ollamaModel }),
+      signal: AbortSignal.timeout(120000), // 2 min timeout for pull
     });
 
-    clearTimeout(timeout);
-
-    if (!response.ok) throw new Error(`Ollama returned ${response.status}`);
-
-    const data = await response.json();
-    const content = data.message?.content;
-    if (content && content.length > 20) {
-      ollamaAvailable = true;
-      return content;
+    if (resp.ok) {
+      modelReady = true;
+      return true;
     }
-    throw new Error("Empty response from Ollama");
+    return false;
   } catch {
-    ollamaAvailable = false;
-    return generateFallbackSummary(report);
+    return false;
+  } finally {
+    pullInProgress = false;
   }
 }
 
-function generateFallbackSummary(report: SecurityReport): string {
-  const score = report.score.total;
-  const grade = report.score.grade;
-  const parts: string[] = [];
+// --- Generate a detailed security report as plain text for the AI ---
+export function generateReportText(report: SecurityReport): string {
+  const lines: string[] = [];
 
-  // Overall assessment
-  if (score >= 85) {
-    parts.push(`${report.domain.domain} looks safe (Score: ${score}/100, Grade: ${grade}).`);
-  } else if (score >= 60) {
-    parts.push(`${report.domain.domain} has some security concerns (Score: ${score}/100, Grade: ${grade}).`);
-  } else if (score >= 30) {
-    parts.push(`${report.domain.domain} has significant security issues (Score: ${score}/100, Grade: ${grade}).`);
-  } else {
-    parts.push(`${report.domain.domain} appears DANGEROUS (Score: ${score}/100, Grade: ${grade}).`);
-  }
+  lines.push("=" .repeat(60));
+  lines.push("SECURITY AUDIT REPORT");
+  lines.push("Generated by CompassCrew");
+  lines.push("=" .repeat(60));
+  lines.push("");
 
-  // HTTPS
-  if (!report.https) {
-    parts.push("This site does NOT use HTTPS — any data you send (passwords, messages) can be intercepted by anyone on the same network.");
-  }
+  // Target
+  lines.push(`TARGET: ${report.url}`);
+  lines.push(`DOMAIN: ${report.domain.domain}`);
+  lines.push(`ANALYZED: ${new Date(report.timestamp).toISOString()}`);
+  lines.push("");
 
-  // TLS issues
-  if (report.tls.selfSigned) {
-    parts.push("The security certificate is self-signed, meaning the site's identity cannot be verified.");
-  }
-  if (report.tls.weakCipher) {
-    parts.push("This site uses outdated encryption that could be broken by attackers.");
-  }
+  // Overall Score
+  lines.push("-".repeat(60));
+  lines.push("OVERALL ASSESSMENT");
+  lines.push("-".repeat(60));
+  lines.push(`Security Score: ${report.score.total}/100`);
+  lines.push(`Grade: ${report.score.grade}`);
+  lines.push(`Risk Level: ${report.score.riskLevel.toUpperCase()}`);
+  lines.push("");
 
-  // Headers
-  const missingHigh = report.headers.filter((h) => !h.present && (h.severity === "high" || h.severity === "critical"));
-  const presentCount = report.headers.filter((h) => h.present).length;
-  const totalCount = report.headers.length;
+  // Score Breakdown
+  lines.push("Score Breakdown:");
+  lines.push(`  HTTPS:            ${report.score.breakdown.https}/100`);
+  lines.push(`  TLS/SSL:          ${report.score.breakdown.tls}/100`);
+  lines.push(`  Security Headers: ${report.score.breakdown.headers}/100`);
+  lines.push(`  Reputation:       ${report.score.breakdown.reputation}/100`);
+  lines.push(`  Domain Age:       ${report.score.breakdown.domainAge}/100`);
+  lines.push(`  Phishing Checks:  ${report.score.breakdown.phishing}/100`);
+  lines.push(`  Form Safety:      ${report.score.breakdown.formSafety}/100`);
+  lines.push("");
 
-  if (missingHigh.length > 0) {
-    parts.push(`Missing critical security headers: ${missingHigh.map((h) => h.name).join(", ")}. This makes the site vulnerable to attacks like XSS and clickjacking.`);
-  } else if (presentCount < totalCount) {
-    parts.push(`Has ${presentCount} of ${totalCount} security headers configured.`);
-  }
+  // HTTPS & TLS
+  lines.push("-".repeat(60));
+  lines.push("HTTPS & TLS CERTIFICATE");
+  lines.push("-".repeat(60));
+  lines.push(`HTTPS Enabled: ${report.https ? "YES" : "NO"}`);
+  lines.push(`Certificate Valid: ${report.tls.valid ? "YES" : "NO"}`);
+  if (report.tls.issuer) lines.push(`Issuer: ${report.tls.issuer}`);
+  if (report.tls.protocol) lines.push(`Protocol: ${report.tls.protocol}`);
+  if (report.tls.validFrom) lines.push(`Valid From: ${report.tls.validFrom}`);
+  if (report.tls.validTo) lines.push(`Valid To: ${report.tls.validTo}`);
+  if (report.tls.daysUntilExpiry !== undefined) lines.push(`Days Until Expiry: ${report.tls.daysUntilExpiry}`);
+  if (report.tls.selfSigned) lines.push("WARNING: Self-signed certificate detected");
+  if (report.tls.weakCipher) lines.push("WARNING: Weak encryption cipher detected");
+  if (report.tls.mixedContent) lines.push("WARNING: Mixed content detected");
+  lines.push("");
 
-  // Domain/phishing
-  if (report.domain.homographAttack) {
-    parts.push("WARNING: This domain uses special characters that mimic a real brand name (homograph attack) — this is a strong phishing indicator.");
+  // Security Headers
+  lines.push("-".repeat(60));
+  lines.push("SECURITY HEADERS");
+  lines.push("-".repeat(60));
+  const presentHeaders = report.headers.filter((h) => h.present);
+  const missingHeaders = report.headers.filter((h) => !h.present);
+  lines.push(`Present: ${presentHeaders.length}/${report.headers.length}`);
+  lines.push("");
+  for (const h of report.headers) {
+    const status = h.present ? "PRESENT" : "MISSING";
+    lines.push(`  [${status}] ${h.name} (${h.severity})`);
+    if (h.present && h.value) lines.push(`    Value: ${h.value}`);
+    if (!h.present) lines.push(`    Risk: ${h.description}`);
+    if (!h.present) lines.push(`    Fix: ${h.recommendation}`);
   }
-  if (report.domain.typosquatting) {
-    parts.push("WARNING: This domain name looks like a misspelling of a well-known site — possible phishing attempt.");
+  lines.push("");
+
+  // Domain Analysis
+  lines.push("-".repeat(60));
+  lines.push("DOMAIN ANALYSIS");
+  lines.push("-".repeat(60));
+  lines.push(`Domain: ${report.domain.domain}`);
+  if (report.domain.ageDays !== undefined) {
+    lines.push(`Domain Age: ${report.domain.ageDays} days (${Math.floor(report.domain.ageDays / 365)} years)`);
   }
-  if (report.domain.suspiciousTLD) {
-    parts.push("This domain uses a top-level domain (.xyz, .top, etc.) commonly associated with scam sites.");
-  }
+  if (report.domain.creationDate) lines.push(`Created: ${report.domain.creationDate}`);
+  if (report.domain.registrar) lines.push(`Registrar: ${report.domain.registrar}`);
+  lines.push("");
+  lines.push("Phishing Indicators:");
+  lines.push(`  Suspicious TLD:      ${report.domain.suspiciousTLD ? "YES - RISK" : "No"}`);
+  lines.push(`  Typosquatting:       ${report.domain.typosquatting ? "YES - RISK" : "No"}`);
+  lines.push(`  Homograph Attack:    ${report.domain.homographAttack ? "YES - RISK" : "No"}`);
+  lines.push(`  IP-based URL:        ${report.domain.ipBasedURL ? "YES - RISK" : "No"}`);
+  lines.push(`  Excessive Subdomains:${report.domain.excessiveSubdomains ? "YES - RISK" : "No"}`);
+  lines.push(`  URL Shortener:       ${report.domain.urlShortener ? "YES - RISK" : "No"}`);
+  lines.push(`  Suspicion Score:     ${report.domain.suspiciousScore}/100`);
+  lines.push("");
 
   // Reputation
-  if (report.reputation.status === "malicious") {
-    parts.push("This site is flagged as MALICIOUS by security databases. Do NOT enter any personal information.");
-  } else if (report.reputation.status === "suspicious") {
-    parts.push("This site has been flagged as suspicious by security sources.");
+  lines.push("-".repeat(60));
+  lines.push("REPUTATION");
+  lines.push("-".repeat(60));
+  lines.push(`Overall Status: ${report.reputation.status.toUpperCase()}`);
+  for (const src of report.reputation.sources) {
+    lines.push(`  ${src.name}: ${src.status}`);
   }
+  lines.push("");
 
-  // Forms
-  if (report.forms.isHTTP && (report.forms.hasPasswordFields || report.forms.hasCreditCardFields)) {
-    parts.push("You are about to type sensitive information into an UNENCRYPTED connection — this data can be stolen.");
-  }
+  // Form Analysis
+  lines.push("-".repeat(60));
+  lines.push("FORM ANALYSIS");
+  lines.push("-".repeat(60));
+  lines.push(`Total Forms: ${report.forms.formCount}`);
+  lines.push(`Password Fields: ${report.forms.hasPasswordFields ? "DETECTED" : "None"}`);
+  lines.push(`Credit Card Fields: ${report.forms.hasCreditCardFields ? "DETECTED" : "None"}`);
+  lines.push(`Login Form: ${report.forms.hasLoginForm ? "DETECTED" : "None"}`);
+  lines.push(`HTTP (Unencrypted): ${report.forms.isHTTP ? "YES - DANGER" : "No"}`);
+  if (report.forms.warning) lines.push(`WARNING: ${report.forms.warning}`);
+  lines.push("");
 
-  // Recommendation
-  if (score >= 80) {
-    parts.push("Safe for normal browsing. Still be cautious with sensitive data on any site.");
-  } else if (score >= 50) {
-    parts.push("Browse with caution. Avoid entering passwords or payment information here.");
-  } else {
-    parts.push("Do NOT enter personal or payment information on this site.");
-  }
+  lines.push("=" .repeat(60));
+  lines.push("END OF REPORT");
+  lines.push("=" .repeat(60));
 
-  return parts.join(" ");
+  return lines.join("\n");
 }
 
+// --- Generate AI summary using the full report as context ---
+export async function generateSummary(report: SecurityReport): Promise<string> {
+  const settings = await getSettings();
+  const reportText = generateReportText(report);
+
+  // Try Ollama first
+  const available = await isOllamaAvailable();
+  if (available) {
+    const ready = await ensureModel();
+    if (ready) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+
+        const response = await fetch(`${settings.ollamaUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: settings.ollamaModel,
+            messages: [
+              {
+                role: "system",
+                content: `You are CompassCrew, an expert cybersecurity advisor. You have been given a detailed security audit report for a website. Your job is to summarize the findings in simple, everyday language that a non-technical person can understand.
+
+RULES:
+1. Start with a one-line overall verdict (Safe / Caution / Dangerous)
+2. List the top 3-5 most important findings, explained simply
+3. Mention specific headers that are missing or present
+4. Note any phishing or domain red flags
+5. End with a clear recommendation (safe to browse, avoid entering info, stay away entirely)
+6. Use no more than 150 words
+7. Never use unexplained jargon - if you say "CSP", explain what it means
+8. Use plain language a grandparent would understand`,
+              },
+              {
+                role: "user",
+                content: `Here is the full security audit report for ${report.domain.domain}. Please summarize it:\n\n${reportText}`,
+              },
+            ],
+            stream: false,
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.message?.content;
+          if (content && content.length > 20) {
+            // Store the report text for chat context
+            await chrome.storage.local.set({ [`reportText_${report.url}`]: reportText });
+            return content;
+          }
+        }
+      } catch {
+        // fall through to fallback
+      }
+    }
+  }
+
+  // Store report text even without AI
+  await chrome.storage.local.set({ [`reportText_${report.url}`]: reportText });
+  return generateFallbackSummary(report);
+}
+
+// --- Chat using the stored report as context ---
 export async function chatWithAI(
   messages: ChatMessage[],
   reportContext?: SecurityReport
 ): Promise<string> {
   const settings = await getSettings();
 
-  const contextPrompt = reportContext
-    ? `Current website: ${reportContext.url}\nScore: ${reportContext.score.total}/100 (${reportContext.score.grade})\nRisk: ${reportContext.score.riskLevel}\nHTTPS: ${reportContext.https}\nPresent headers: ${reportContext.headers.filter((h) => h.present).map((h) => h.name).join(", ")}`
-    : "No specific website context.";
+  // Get stored report text for full context
+  let reportText = "";
+  if (reportContext) {
+    const stored = await chrome.storage.local.get(`reportText_${reportContext.url}`);
+    reportText = stored[`reportText_${reportContext.url}`] || generateReportText(reportContext);
+  }
+
+  const available = await isOllamaAvailable();
+  if (!available) {
+    return "Ollama is not running. To use the AI chat:\n\n1. Install Ollama: ollama.ai\n2. Open a terminal and run: ollama serve\n3. The extension will auto-pull the model on first use.";
+  }
+
+  const ready = await ensureModel();
+  if (!ready) {
+    return "The AI model is being downloaded (llama3.2:3b). This may take a minute on first use. Try your question again in a moment.";
+  }
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const systemPrompt = reportContext
+      ? `You are CompassCrew, a friendly cybersecurity advisor. You have a full security audit report for ${reportContext.domain.domain} (Score: ${reportContext.score.total}/100, Grade: ${reportContext.score.grade}).
+
+FULL REPORT:
+${reportText}
+
+Answer the user's questions about this website's security. Be specific — reference actual headers, scores, and findings from the report. Use everyday language. If the user asks about something not in the report, explain the general concept.`
+      : `You are CompassCrew, a friendly cybersecurity advisor. Answer the user's questions about website security in general. Be concise, use everyday language, and give practical advice.`;
 
     const response = await fetch(`${settings.ollamaUrl}/api/chat`, {
       method: "POST",
@@ -204,10 +331,7 @@ export async function chatWithAI(
       body: JSON.stringify({
         model: settings.ollamaModel,
         messages: [
-          {
-            role: "system",
-            content: `You are CompassCrew, a friendly cybersecurity advisor. Answer the user's questions about website security. Be concise, use everyday language, and give actionable advice.\n\n${contextPrompt}`,
-          },
+          { role: "system", content: systemPrompt },
           ...messages,
         ],
         stream: false,
@@ -227,8 +351,79 @@ export async function chatWithAI(
     throw new Error("Empty response");
   } catch (e: any) {
     if (e.name === "AbortError") {
-      return "AI took too long to respond. The model might be loading — try again in a moment.";
+      return "AI took too long to respond. The model might still be loading — try again in a moment.";
     }
-    return "AI is unavailable. Make sure Ollama is running:\n1. Install Ollama from ollama.ai\n2. Run: ollama pull llama3.2:3b\n3. Run: ollama serve\nThen reload the extension.";
+    return "AI error. Make sure Ollama is running (ollama serve) and the model is ready.";
   }
+}
+
+// --- Fallback summary when Ollama is not available ---
+function generateFallbackSummary(report: SecurityReport): string {
+  const score = report.score.total;
+  const parts: string[] = [];
+
+  if (score >= 85) {
+    parts.push(`VERDICT: This site looks safe. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  } else if (score >= 60) {
+    parts.push(`VERDICT: Exercise caution on this site. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  } else if (score >= 30) {
+    parts.push(`VERDICT: This site has serious security issues. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  } else {
+    parts.push(`VERDICT: DANGEROUS — avoid this site. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  }
+
+  if (!report.https) {
+    parts.push("This site does NOT use HTTPS. Any data you send (passwords, credit cards) can be intercepted by anyone on the same network.");
+  }
+
+  if (report.tls.selfSigned) {
+    parts.push("The security certificate is self-signed, meaning the site's identity cannot be verified by a trusted authority.");
+  }
+  if (report.tls.weakCipher) {
+    parts.push("This site uses outdated encryption that could be broken by attackers.");
+  }
+
+  const presentHeaders = report.headers.filter((h) => h.present);
+  const missingHigh = report.headers.filter((h) => !h.present && (h.severity === "high" || h.severity === "critical"));
+  const missingMed = report.headers.filter((h) => !h.present && h.severity === "medium");
+
+  if (missingHigh.length > 0) {
+    parts.push(`Missing critical security headers: ${missingHigh.map((h) => h.name).join(", ")}. This leaves the site vulnerable to script injection (XSS) and clickjacking attacks.`);
+  }
+  if (presentHeaders.length > 0) {
+    parts.push(`Good: ${presentHeaders.map((h) => h.name).join(", ")} ${presentHeaders.length === 1 ? "is" : "are"} configured.`);
+  }
+
+  if (report.domain.homographAttack) {
+    parts.push("RED FLAG: This domain uses special characters that mimic a real brand name — this is a homograph attack used in phishing.");
+  }
+  if (report.domain.typosquatting) {
+    parts.push("RED FLAG: This domain name looks like a misspelling of a well-known website — possible phishing.");
+  }
+  if (report.domain.suspiciousTLD) {
+    parts.push("This domain uses a top-level domain commonly associated with scam sites.");
+  }
+  if (report.domain.ageDays !== undefined && report.domain.ageDays < 30) {
+    parts.push(`This domain was registered only ${report.domain.ageDays} days ago — newly created domains are higher risk.`);
+  }
+
+  if (report.reputation.status === "malicious") {
+    parts.push("This site is flagged as MALICIOUS by security databases. Do NOT enter personal information.");
+  } else if (report.reputation.status === "suspicious") {
+    parts.push("This site has been flagged as suspicious by security sources.");
+  }
+
+  if (report.forms.isHTTP && (report.forms.hasPasswordFields || report.forms.hasCreditCardFields)) {
+    parts.push("DANGER: You are about to type sensitive data into an UNENCRYPTED connection — this data can be easily stolen.");
+  }
+
+  if (score >= 80) {
+    parts.push("RECOMMENDATION: Safe for normal browsing. As with any site, be cautious with sensitive information.");
+  } else if (score >= 50) {
+    parts.push("RECOMMENDATION: Browse with caution. Avoid entering passwords, credit cards, or personal information.");
+  } else {
+    parts.push("RECOMMENDATION: Do NOT enter any personal or payment information on this site. Consider leaving.");
+  }
+
+  return parts.join("\n\n");
 }
