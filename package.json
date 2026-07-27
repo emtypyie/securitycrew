@@ -1,0 +1,17 @@
+{
+  "name": "compasscrew",
+  "version": "1.0.0",
+  "description": "AI-powered browser security hygiene auditor",
+  "private": true,
+  "scripts": {
+    "dev:extension": "cd extension && npm run dev",
+    "build:extension": "cd extension && npm run build",
+    "dev:server": "cd server && npm run dev",
+    "build:server": "cd server && npm run build",
+    "dev": "concurrently \"npm run dev:extension\" \"npm run dev:server\"",
+    "build": "npm run build:extension && npm run build:server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
