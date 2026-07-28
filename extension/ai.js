@@ -60,7 +60,7 @@ async function chatLlamaCpp(messages) {
 
 async function chatGemini(messages) {
   const s = getSettings();
-  const model = s.aiModel || "gemini-1.5-flash";
+  const model = (s.aiModel && s.aiModel !== "local-model") ? s.aiModel : "gemini-1.5-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const contents = messages.filter((m) => m.role !== "system").map((m) => ({
     role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }],
@@ -87,7 +87,7 @@ async function chatGemini(messages) {
 async function chatOpenAI(messages) {
   const s = getSettings();
   const baseUrl = s.aiServerUrl || "https://api.openai.com/v1";
-  const model = s.aiModel || "gpt-4o-mini";
+  const model = (s.aiModel && s.aiModel !== "local-model") ? s.aiModel : "gpt-4o-mini";
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);

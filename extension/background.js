@@ -124,7 +124,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "CHAT_AI") {
-    chatWithAI(message.messages, message.report).then((reply) => sendResponse({ reply }));
+    getSettings().then((settings) => {
+      configureAI(settings);
+      return chatWithAI(message.messages, message.report);
+    }).then((reply) => sendResponse({ reply })).catch(() => sendResponse({ reply: "AI error. Check settings." }));
     return true;
   }
   if (message.type === "GET_SETTINGS") {

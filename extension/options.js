@@ -54,7 +54,14 @@
     document.getElementById("modelLabel").textContent = f.modelLabel;
     document.getElementById("modelDesc").textContent = f.modelDesc;
     document.getElementById("modelInput").placeholder = f.modelPlaceholder;
-    document.getElementById("modelInput").value = settings.aiModel || "";
+    const knownDefaults = { llamacpp: "local-model", gemini: "gemini-1.5-flash", openai: "gpt-4o-mini" };
+    if (knownDefaults[settings.aiProvider] !== settings.aiModel && Object.values(knownDefaults).includes(settings.aiModel)) {
+      settings.aiModel = f.modelPlaceholder;
+    }
+    if (!settings.aiModel || Object.values(knownDefaults).includes(settings.aiModel)) {
+      settings.aiModel = f.modelPlaceholder;
+    }
+    document.getElementById("modelInput").value = settings.aiModel;
 
     // API key
     document.getElementById("keyField").style.display = f.needsKey ? "block" : "none";
