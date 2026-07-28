@@ -16,6 +16,6 @@ async function probeTLS(url) {
     await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
     return { valid: true, selfSigned: false, weakCipher: false, mixedContent: false, issuer: "Valid (issuer details require backend)", protocol: "TLSv1.2+" };
   } catch {
-    return { valid: true, selfSigned: false, weakCipher: false, mixedContent: false, issuer: "Unknown", protocol: "TLS" };
+    return { valid: false, selfSigned: false, weakCipher: false, mixedContent: false, issuer: "Unknown", protocol: "unknown" };
   }
 }

@@ -78,7 +78,6 @@ function scoreTLS(tls: TLSInfo): number {
 
 function scoreHeaders(headers: SecurityHeader[]): number {
   if (headers.length === 0) return 0;
-  const present = headers.filter((h) => h.present).length;
   const weighted = headers.reduce((acc, h) => {
     const severityWeight =
       h.severity === "critical" ? 4 : h.severity === "high" ? 3 : h.severity === "medium" ? 2 : 1;
@@ -103,6 +102,8 @@ function scoreReputation(reputation: ReputationInfo): number {
       return 20;
     case "malicious":
       return 0;
+    default:
+      return 50;
   }
 }
 

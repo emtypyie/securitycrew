@@ -6,7 +6,7 @@ import { calculateScore } from "./scoring.js";
 import { generateSummary, chatWithAI, isServerAvailable, resetAICache, configureAI } from "./ai.js";
 
 const DEFAULT_SETTINGS = {
-  enableNotifications: true, enableFormGuard: true, educationalMode: false,
+  enableNotifications: true, enableFormGuard: true,
   backendUrl: "", aiProvider: "llamacpp", aiServerUrl: "http://localhost:8080",
   aiModel: "local-model", aiApiKey: "",
 };
@@ -152,9 +152,3 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => { formDataByTab.delete(tabId); });
-
-(async () => {
-  const settings = await getSettings();
-  configureAI(settings);
-  await isServerAvailable();
-})();

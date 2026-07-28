@@ -53,6 +53,7 @@ function scoreReputation(reputation) {
     case "unknown": return 50;
     case "suspicious": return 20;
     case "malicious": return 0;
+    default: return 50;
   }
 }
 

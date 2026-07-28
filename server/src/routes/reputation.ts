@@ -118,7 +118,7 @@ reputationRouter.get("/", async (req, res) => {
   const [google, urlhaus, heuristic] = await Promise.all([
     checkGoogleSafeBrowsing(url, apiKey),
     checkURLHaus(url),
-    Promise.resolve(heuristicCheck(url)),
+    heuristicCheck(url),
   ]);
 
   const sources = [google, urlhaus, heuristic];

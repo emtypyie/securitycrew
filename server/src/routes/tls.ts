@@ -57,6 +57,7 @@ tlsRouter.get("/", (req, res) => {
     });
 
     socket.on("error", () => {
+      if (res.headersSent) return;
       res.json({
         valid: false,
         protocol: "none",
@@ -67,6 +68,7 @@ tlsRouter.get("/", (req, res) => {
 
     socket.setTimeout(5000, () => {
       socket.destroy();
+      if (res.headersSent) return;
       res.json({
         valid: false,
         protocol: "timeout",

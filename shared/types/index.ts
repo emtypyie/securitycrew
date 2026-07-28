@@ -89,12 +89,6 @@ export interface ScoreBreakdown {
   formSafety: number;
 }
 
-export interface AIExplanation {
-  summary: string;
-  recommendations: string[];
-  riskFactors: string[];
-}
-
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -113,7 +107,6 @@ export type AIProvider = "llamacpp" | "gemini" | "openai";
 export interface ExtensionSettings {
   enableNotifications: boolean;
   enableFormGuard: boolean;
-  educationalMode: boolean;
   backendUrl: string;
   aiProvider: AIProvider;
   aiServerUrl: string;

@@ -12,8 +12,6 @@ interface WhoisResult {
 // Simple WHOIS lookup using rdap (Registration Data Access Protocol)
 // This is a free alternative to traditional WHOIS
 async function lookupRDAP(domain: string): Promise<WhoisResult> {
-  const tld = domain.split(".").pop() || "com";
-
   // Try RDAP bootstrap
   const bootstrapUrl = `https://rdap.org/domain/${domain}`;
 

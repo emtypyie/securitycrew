@@ -2,7 +2,7 @@ let currentSettings = null;
 let serverAvailable = null;
 
 const DEFAULT_SETTINGS = {
-  enableNotifications: true, enableFormGuard: true, educationalMode: false,
+  enableNotifications: true, enableFormGuard: true,
   backendUrl: "", aiProvider: "llamacpp", aiServerUrl: "http://localhost:8080",
   aiModel: "local-model", aiApiKey: "",
 };
@@ -61,7 +61,7 @@ async function chatLlamaCpp(messages) {
 async function chatGemini(messages) {
   const s = getSettings();
   const model = s.aiModel || "gemini-1.5-flash";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${s.aiApiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const contents = messages.filter((m) => m.role !== "system").map((m) => ({
     role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }],
   }));
@@ -73,7 +73,7 @@ async function chatGemini(messages) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
     const resp = await fetch(url, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": s.aiApiKey },
       body: JSON.stringify(body), signal: controller.signal,
     });
     clearTimeout(timeout);
