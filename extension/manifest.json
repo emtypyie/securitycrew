@@ -16,7 +16,7 @@
     "type": "module"
   },
   "action": {
-    "default_popup": "src/popup.html",
+    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -27,10 +27,11 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
+      "type": "module",
       "run_at": "document_idle"
     }
   ],
-  "options_page": "src/options.html",
+  "options_page": "options.html",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
