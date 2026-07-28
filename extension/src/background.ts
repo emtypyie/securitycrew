@@ -1,10 +1,10 @@
 import type { SecurityReport, ExtensionSettings, FormAnalysis } from "@shared/types";
-import { analyzeHeaders } from "../services/header-analyzer";
-import { analyzeTLS } from "../services/tls-analyzer";
-import { analyzeDomain, getDomainAge } from "../services/domain-analyzer";
-import { checkReputation } from "../services/reputation-checker";
+import { analyzeHeaders } from "./services/header-analyzer";
+import { analyzeTLS } from "./services/tls-analyzer";
+import { analyzeDomain, getDomainAge } from "./services/domain-analyzer";
+import { checkReputation } from "./services/reputation-checker";
 import { calculateScore } from "@shared/scoring/engine";
-import { generateSummary, chatWithAI, isServerAvailable, resetAICache, configureAI } from "../ai/ai";
+import { generateSummary, chatWithAI, isServerAvailable, resetAICache, configureAI } from "./ai";
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   enableNotifications: true,

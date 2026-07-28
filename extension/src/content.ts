@@ -1,5 +1,5 @@
 import type { FormAnalysis } from "@shared/types";
-import { analyzeForms, injectWarningBanner } from "../services/form-analyzer";
+import { analyzeForms, injectWarningBanner } from "./services/form-analyzer";
 
 let currentUrl = window.location.href;
 

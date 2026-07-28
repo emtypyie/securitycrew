@@ -9,10 +9,10 @@ export default defineConfig({
     {
       name: "copy-popup",
       writeBundle() {
-        const src = resolve(__dirname, "src/popup/index.html");
-        const destDir = resolve(__dirname, "dist/src/popup");
+        const src = resolve(__dirname, "src/popup.html");
+        const destDir = resolve(__dirname, "dist/src");
         mkdirSync(destDir, { recursive: true });
-        copyFileSync(src, resolve(destDir, "index.html"));
+        copyFileSync(src, resolve(destDir, "popup.html"));
       },
     },
   ],
@@ -22,8 +22,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         options: resolve(__dirname, "src/options/index.html"),
-        background: resolve(__dirname, "src/background/index.ts"),
-        content: resolve(__dirname, "src/content/index.ts"),
+        background: resolve(__dirname, "src/background.ts"),
+        content: resolve(__dirname, "src/content.ts"),
       },
       output: {
         entryFileNames: "[name].js",
