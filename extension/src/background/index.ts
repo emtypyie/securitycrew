@@ -1,24 +1,38 @@
-import type { SecurityReport, ExtensionSettings } from "@shared/types";
+import type { SecurityReport, ExtensionSettings, FormAnalysis } from "@shared/types";
 import { analyzeHeaders } from "../services/header-analyzer";
 import { analyzeTLS } from "../services/tls-analyzer";
 import { analyzeDomain, getDomainAge } from "../services/domain-analyzer";
 import { checkReputation } from "../services/reputation-checker";
 import { calculateScore } from "@shared/scoring/engine";
-import { generateSummary, chatWithAI, isOllamaAvailable, resetAICache } from "../ai/ollama";
+import { generateSummary, chatWithAI, isServerAvailable, resetAICache, configureAI } from "../ai/ollama";
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   enableNotifications: true,
   enableFormGuard: true,
   educationalMode: false,
   backendUrl: "",
-  ollamaUrl: "http://localhost:11434",
-  ollamaModel: "llama3.2:3b",
+  aiProvider: "llamacpp",
+  aiServerUrl: "http://localhost:8080",
+  aiModel: "local-model",
+  aiApiKey: "",
+};
+
+const EMPTY_FORMS: FormAnalysis = {
+  hasPasswordFields: false,
+  hasCreditCardFields: false,
+  hasLoginForm: false,
+  isHTTP: false,
+  formCount: 0,
+  warning: null,
 };
 
 async function getSettings(): Promise<ExtensionSettings> {
   const stored = await chrome.storage.local.get("settings");
   return { ...DEFAULT_SETTINGS, ...stored.settings };
 }
+
+// --- Form data from content scripts (per-tab) ---
+const formDataByTab = new Map<number, FormAnalysis>();
 
 // --- Header collection via webRequest (best-effort cache) ---
 const headerCache = new Map<string, Record<string, string>>();
@@ -40,7 +54,7 @@ chrome.webRequest.onHeadersReceived.addListener(
   ["responseHeaders"]
 );
 
-// --- Fetch headers directly via fetch (primary method) ---
+// --- Fetch headers directly ---
 async function fetchHeaders(url: string): Promise<Record<string, string>> {
   const cached = headerCache.get(url);
   if (cached && Object.keys(cached).length > 0) return cached;
@@ -65,6 +79,8 @@ async function fetchHeaders(url: string): Promise<Record<string, string>> {
 // --- Main analysis ---
 async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   const settings = await getSettings();
+  configureAI(settings);
+
   const responseHeaders = await fetchHeaders(url);
 
   const [tls, domainInfo, reputation] = await Promise.all([
@@ -75,13 +91,17 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
 
   const domainAge = await getDomainAge(domainInfo.domain, settings.backendUrl || undefined);
   const headers = analyzeHeaders(responseHeaders);
+  const forms = formDataByTab.get(tabId) || EMPTY_FORMS;
+
+  const isHTTP = !url.startsWith("https://");
+  const formsWithHTTP = { ...forms, isHTTP };
 
   const score = calculateScore(
     url.startsWith("https://"),
     headers, tls,
     { ...domainInfo, ...domainAge },
     reputation,
-    { hasPasswordFields: false, hasCreditCardFields: false, hasLoginForm: false, isHTTP: !url.startsWith("https://"), formCount: 0, warning: null }
+    formsWithHTTP,
   );
 
   const report: SecurityReport = {
@@ -90,12 +110,11 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
     headers, tls,
     domain: { ...domainInfo, ...domainAge },
     reputation,
-    forms: { hasPasswordFields: false, hasCreditCardFields: false, hasLoginForm: false, isHTTP: !url.startsWith("https://"), formCount: 0, warning: null },
+    forms: formsWithHTTP,
     score,
   };
 
   report.aiSummary = await generateSummary(report);
-
   await chrome.storage.local.set({ [`report_${url}`]: report });
 
   const historyEntry = { url, score: score.total, riskLevel: score.riskLevel, timestamp: Date.now() };
@@ -106,8 +125,8 @@ async function analyzeTab(tabId: number, url: string): Promise<SecurityReport> {
   if (settings.enableNotifications && score.riskLevel === "dangerous") {
     chrome.notifications.create(`warning-${tabId}`, {
       type: "basic", iconUrl: "icons/icon128.png",
-      title: "CompassCrew: Dangerous Site Detected",
-      message: `${new URL(url).hostname} scored ${score.total}/100. This site may be unsafe.`,
+      title: "SecurityCrew: Dangerous Site Detected",
+      message: `${new URL(url).hostname} scored ${score.total}/100.`,
     });
   }
 
@@ -135,16 +154,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "CHECK_OLLAMA") {
-    isOllamaAvailable().then((available) => sendResponse({ available }));
+  if (message.type === "CHECK_AI_SERVER") {
+    getSettings().then((settings) => {
+      configureAI(settings);
+      isServerAvailable().then((available) => sendResponse({ available }));
+    });
     return true;
   }
 
-  if (message.type === "GET_REPORT") {
-    chrome.storage.local.get(`report_${message.url}`).then((data) => {
-      sendResponse(data[`report_${message.url}`] || null);
-    });
-    return true;
+  if (message.type === "FORM_DATA") {
+    if (sender.tab?.id && message.forms) {
+      formDataByTab.set(sender.tab.id, message.forms);
+    }
+    sendResponse({ ok: true });
+    return false;
   }
 
   if (message.type === "GET_HISTORY") {
@@ -163,6 +186,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_SETTINGS") {
+    const s = message.settings as ExtensionSettings;
+    configureAI(s);
     resetAICache();
     chrome.storage.local.set({ settings: message.settings }).then(() => sendResponse({ success: true }));
     return true;
@@ -185,16 +210,21 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
-// --- Startup: check Ollama and auto-pull model ---
+// Clean up form data when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  formDataByTab.delete(tabId);
+});
+
+// --- Startup: check AI provider ---
 (async () => {
-  console.log("CompassCrew: Checking Ollama availability...");
-  const available = await isOllamaAvailable();
+  const settings = await getSettings();
+  configureAI(settings);
+  const available = await isServerAvailable();
   if (available) {
-    console.log("CompassCrew: Ollama is running. Checking model...");
-    // Model auto-pull happens inside generateSummary when needed
+    console.log(`SecurityCrew: AI provider "${settings.aiProvider}" is configured`);
   } else {
-    console.log("CompassCrew: Ollama not detected. AI features disabled. Install from ollama.ai");
+    console.log("SecurityCrew: No AI configured. Open settings to set up.");
   }
 })();
 
-console.log("CompassCrew background service worker loaded.");
+console.log("SecurityCrew background service worker loaded.");

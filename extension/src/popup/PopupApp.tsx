@@ -1,177 +1,175 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { SecurityReport, HistoryEntry } from "@shared/types";
 import { ScoreGauge } from "../components/ScoreGauge";
 import { HeaderList } from "../components/HeaderList";
 import { DomainInfoCard } from "../components/DomainInfoCard";
 import { AIChat } from "../components/AIChat";
 
-type Tab = "overview" | "headers" | "domain" | "history" | "chat";
+type Tab = "score" | "details" | "chat";
 
 export default function PopupApp() {
   const [report, setReport] = useState<SecurityReport | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [activeTab, setActiveTab] = useState<Tab>("score");
   const [error, setError] = useState<string | null>(null);
-  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
+  const [aiServer, setAiServer] = useState<boolean | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [modelPulling, setModelPulling] = useState(false);
+  const mountedRef = useRef(true);
 
-  const checkOllama = useCallback(async () => {
-    try {
-      const resp = await chrome.runtime.sendMessage({ type: "CHECK_OLLAMA" });
-      setOllamaAvailable(resp?.available ?? false);
-    } catch {
-      setOllamaAvailable(false);
-    }
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: "CHECK_AI_SERVER" }).then((resp) => {
+      if (mountedRef.current) setAiServer(resp?.available ?? false);
+    }).catch(() => {
+      if (mountedRef.current) setAiServer(false);
+    });
+    return () => { mountedRef.current = false; };
   }, []);
 
-  const analyzeCurrentTab = useCallback(async () => {
+  const analyzeTab = async () => {
     setLoading(true);
     setError(null);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.url || !tab.url.startsWith("http")) {
-        setError("Navigate to a website to analyze its security.");
+        setError("Navigate to a website to check its security.");
         setLoading(false);
         return;
       }
-
-      // Show pulling status if AI is available but model might need downloading
-      if (ollamaAvailable === false) {
-        setModelPulling(false);
-      }
-
       const response = await chrome.runtime.sendMessage({
         type: "ANALYZE_URL",
         url: tab.url,
         tabId: tab.id,
       });
-
       if (response) {
         setReport(response);
       } else {
-        setError("Failed to analyze this page.");
+        setError("Something went wrong. Try again.");
       }
     } catch {
-      setError("Extension error. Please try again.");
+      setError("Something went wrong. Try again.");
     }
     setLoading(false);
-    setModelPulling(false);
-  }, [ollamaAvailable]);
+  };
 
-  const loadHistory = useCallback(async () => {
-    try {
-      const data = await chrome.runtime.sendMessage({ type: "GET_HISTORY" });
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: "GET_HISTORY" }).then((data) => {
       setHistory(data || []);
-    } catch {
-      setHistory([]);
-    }
+    }).catch(() => {});
   }, []);
 
-  const refreshAI = useCallback(async () => {
+  useEffect(() => {
+    analyzeTab();
+  }, []);
+
+  const refreshAI = async () => {
     if (!report) return;
     setAiLoading(true);
     try {
-      const resp = await chrome.runtime.sendMessage({
-        type: "REFRESH_AI",
-        url: report.url,
-      });
+      const resp = await chrome.runtime.sendMessage({ type: "REFRESH_AI", url: report.url });
       if (resp) setReport(resp);
     } catch {}
     setAiLoading(false);
-  }, [report]);
-
-  useEffect(() => {
-    checkOllama();
-    analyzeCurrentTab();
-    loadHistory();
-  }, [analyzeCurrentTab, loadHistory, checkOllama]);
+  };
 
   const riskColor = (level: string) => {
     switch (level) {
-      case "safe": return "text-green-500";
-      case "moderate": return "text-yellow-500";
-      case "suspicious": return "text-orange-500";
-      case "dangerous": return "text-red-500";
-      default: return "text-gray-500";
+      case "safe": return "text-green-400";
+      case "moderate": return "text-yellow-400";
+      case "suspicious": return "text-orange-400";
+      case "dangerous": return "text-red-400";
+      default: return "text-gray-400";
     }
   };
 
-  const aiStatusBadge = () => {
-    if (ollamaAvailable === null) {
-      return (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-500">
-          Checking...
-        </span>
-      );
+  const riskIcon = (level: string) => {
+    switch (level) {
+      case "safe":
+        return (
+          <svg className="w-5 h-5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+      case "moderate":
+        return (
+          <svg className="w-5 h-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        );
+      case "suspicious":
+        return (
+          <svg className="w-5 h-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        );
+      case "dangerous":
+        return (
+          <svg className="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+      default:
+        return null;
     }
-    if (modelPulling) {
-      return (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-900 text-yellow-300 animate-pulse">
-          Downloading AI model...
-        </span>
-      );
-    }
-    if (ollamaAvailable) {
-      return (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-900 text-green-300">
-          AI Ready
-        </span>
-      );
-    }
-    return (
-      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-500">
-        No AI
-      </span>
-    );
   };
 
   return (
-    <div className="bg-gray-950 text-white min-h-screen">
+    <div className="bg-gray-950 text-white w-[380px] min-h-[500px]">
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <span className="font-bold text-lg">CompassCrew</span>
-            {aiStatusBadge()}
+            <span className="font-bold text-lg">SecurityCrew</span>
+            {aiServer !== null && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${aiServer ? "bg-green-900 text-green-300" : "bg-gray-800 text-gray-500"}`}>
+                {aiServer ? "AI" : "No AI"}
+              </span>
+            )}
           </div>
-          <button
-            onClick={analyzeCurrentTab}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-md text-sm font-medium transition-colors"
-          >
-            Re-scan
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => chrome.runtime.openOptionsPage()}
+              className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-800 transition-colors"
+              title="Settings"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+            <button
+              onClick={analyzeTab}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-md text-xs font-medium transition-colors"
+            >
+              Scan
+            </button>
+          </div>
         </div>
       </header>
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">
-            {modelPulling ? "Downloading AI model (first time only)..." : "Analyzing security posture..."}
-          </p>
-          {modelPulling && (
-            <p className="text-gray-600 text-xs text-center px-8">
-              llama3.2:3b is being downloaded via Ollama. This only happens once.
-            </p>
-          )}
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-400 text-sm">Scanning...</p>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-4 px-6">
-          <svg className="w-12 h-12 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
+        <div className="flex flex-col items-center justify-center py-20 gap-3 px-6">
+          <div className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center">
+            <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          </div>
           <p className="text-gray-400 text-sm text-center">{error}</p>
+          <button onClick={analyzeTab} className="text-xs text-blue-400 hover:text-blue-300">Try again</button>
         </div>
       ) : report ? (
         <div>
-          <nav className="flex border-b border-gray-800 bg-gray-900/50">
-            {(["overview", "headers", "domain", "history", "chat"] as Tab[]).map((tab) => (
+          <nav className="flex border-b border-gray-800">
+            {(["score", "details", "chat"] as Tab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -181,77 +179,67 @@ export default function PopupApp() {
                     : "text-gray-500 hover:text-gray-300"
                 }`}
               >
-                {tab}
+                {tab === "score" ? "Score" : tab === "details" ? "Details" : "Ask AI"}
               </button>
             ))}
           </nav>
 
           <div className="p-4">
-            {activeTab === "overview" && (
+            {activeTab === "score" && (
               <div className="space-y-4">
                 <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-1 truncate max-w-[300px] mx-auto">{report.url}</p>
+                  <p className="text-[11px] text-gray-500 mb-2 truncate max-w-[320px] mx-auto">{report.url}</p>
                   <ScoreGauge score={report.score.total} grade={report.score.grade} />
-                  <p className={`text-sm font-semibold mt-2 capitalize ${riskColor(report.score.riskLevel)}`}>
-                    {report.score.riskLevel}
-                  </p>
+                  <div className="flex items-center justify-center gap-1.5 mt-2">
+                    {riskIcon(report.score.riskLevel)}
+                    <p className={`text-sm font-semibold capitalize ${riskColor(report.score.riskLevel)}`}>
+                      {report.score.riskLevel === "safe" ? "Looks Safe" :
+                       report.score.riskLevel === "moderate" ? "Use Caution" :
+                       report.score.riskLevel === "suspicious" ? "Suspicious" :
+                       "Dangerous"}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <StatCard label="HTTPS" value={report.https ? "Yes" : "No"} good={report.https} />
-                  <StatCard label="TLS" value={report.tls.valid ? "Valid" : "Invalid"} good={report.tls.valid} />
+                  <StatCard label="Certificate" value={report.tls.valid ? "Valid" : "Invalid"} good={report.tls.valid} />
                   <StatCard label="Headers" value={`${report.headers.filter((h) => h.present).length}/${report.headers.length}`} good={report.headers.filter((h) => h.present).length > 4} />
                   <StatCard label="Reputation" value={report.reputation.status} good={report.reputation.status === "safe"} />
                 </div>
 
                 {report.aiSummary && (
                   <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-1.5">
                       <p className="text-xs font-semibold text-blue-400">
-                        {ollamaAvailable ? "AI Analysis" : "Security Summary"}
+                        {aiServer ? "AI Summary" : "Summary"}
                       </p>
                       <button
                         onClick={refreshAI}
                         disabled={aiLoading}
                         className="text-[10px] text-gray-500 hover:text-blue-400 disabled:text-gray-700 transition-colors"
                       >
-                        {aiLoading ? "Generating..." : "Refresh"}
+                        {aiLoading ? "..." : "Refresh"}
                       </button>
                     </div>
-                    <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">{report.aiSummary}</p>
-                    {!ollamaAvailable && (
-                      <div className="mt-3 pt-2 border-t border-gray-800">
-                        <p className="text-[10px] text-gray-500 leading-relaxed">
-                          For AI-powered analysis, install Ollama:
-                        </p>
-                        <code className="text-[10px] text-blue-400 mt-1 block">
-                          1. ollama.ai {"->"} install{"\n"}
-                          2. ollama pull llama3.2:3b{"\n"}
-                          3. ollama serve
-                        </code>
-                        <p className="text-[10px] text-gray-600 mt-1">
-                          The model auto-downloads on first use.
-                        </p>
-                      </div>
-                    )}
+                    <p className="text-[13px] text-gray-300 leading-relaxed whitespace-pre-line">{report.aiSummary}</p>
                   </div>
                 )}
 
                 {report.score.breakdown && (
                   <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Score Breakdown</p>
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Breakdown</p>
                     <div className="space-y-1.5">
                       {[
                         { label: "HTTPS", score: report.score.breakdown.https },
                         { label: "TLS/SSL", score: report.score.breakdown.tls },
-                        { label: "Security Headers", score: report.score.breakdown.headers },
+                        { label: "Headers", score: report.score.breakdown.headers },
                         { label: "Reputation", score: report.score.breakdown.reputation },
-                        { label: "Domain Age", score: report.score.breakdown.domainAge },
-                        { label: "Phishing Checks", score: report.score.breakdown.phishing },
-                        { label: "Form Safety", score: report.score.breakdown.formSafety },
+                        { label: "Phishing", score: report.score.breakdown.phishing },
+                        { label: "Forms", score: report.score.breakdown.formSafety },
                       ].map((item) => (
                         <div key={item.label} className="flex items-center gap-2">
-                          <span className="text-[11px] text-gray-400 w-28 shrink-0">{item.label}</span>
+                          <span className="text-[11px] text-gray-400 w-20 shrink-0">{item.label}</span>
                           <div className="flex-1 bg-gray-800 rounded-full h-1.5">
                             <div
                               className={`h-full rounded-full transition-all duration-500 ${
@@ -262,7 +250,7 @@ export default function PopupApp() {
                               style={{ width: `${item.score}%` }}
                             />
                           </div>
-                          <span className="text-[11px] text-gray-500 w-6 text-right">{item.score}</span>
+                          <span className="text-[11px] text-gray-500 w-5 text-right">{item.score}</span>
                         </div>
                       ))}
                     </div>
@@ -271,10 +259,34 @@ export default function PopupApp() {
               </div>
             )}
 
-            {activeTab === "headers" && <HeaderList headers={report.headers} />}
-            {activeTab === "domain" && <DomainInfoCard domain={report.domain} reputation={report.reputation} tls={report.tls} />}
-            {activeTab === "history" && <HistoryList history={history} />}
-            {activeTab === "chat" && <AIChat report={report} />}
+            {activeTab === "details" && (
+              <div className="space-y-4">
+                <HeaderList headers={report.headers} />
+                <DomainInfoCard domain={report.domain} reputation={report.reputation} tls={report.tls} />
+                {history.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Recent Scans</p>
+                    <div className="space-y-1.5">
+                      {history.slice(0, 10).map((entry, i) => (
+                        <div key={`${entry.url}-${i}`} className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-lg px-3 py-2">
+                          <p className="text-[11px] text-gray-400 truncate flex-1 mr-2">{new URL(entry.url).hostname}</p>
+                          <span className={`text-xs font-bold ${
+                            entry.riskLevel === "safe" ? "text-green-400" :
+                            entry.riskLevel === "moderate" ? "text-yellow-400" :
+                            entry.riskLevel === "suspicious" ? "text-orange-400" :
+                            "text-red-400"
+                          }`}>
+                            {entry.score}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "chat" && <AIChat report={report} aiServer={aiServer} />}
           </div>
         </div>
       ) : null}
@@ -284,36 +296,9 @@ export default function PopupApp() {
 
 function StatCard({ label, value, good }: { label: string; value: string; good: boolean }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-      <p className="text-xs text-gray-500">{label}</p>
+    <div className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2">
+      <p className="text-[11px] text-gray-500">{label}</p>
       <p className={`text-sm font-semibold ${good ? "text-green-400" : "text-red-400"}`}>{value}</p>
-    </div>
-  );
-}
-
-function HistoryList({ history }: { history: HistoryEntry[] }) {
-  if (history.length === 0) {
-    return <p className="text-gray-500 text-sm text-center py-8">No history yet.</p>;
-  }
-
-  return (
-    <div className="space-y-2">
-      {history.map((entry, i) => (
-        <div key={`${entry.url}-${i}`} className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-300 truncate flex-1 mr-2">{entry.url}</p>
-            <span className={`text-sm font-bold ${
-              entry.riskLevel === "safe" ? "text-green-400" :
-              entry.riskLevel === "moderate" ? "text-yellow-400" :
-              entry.riskLevel === "suspicious" ? "text-orange-400" :
-              "text-red-400"
-            }`}>
-              {entry.score}
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 mt-1">{new Date(entry.timestamp).toLocaleString()}</p>
-        </div>
-      ))}
     </div>
   );
 }

@@ -57,10 +57,10 @@ export function analyzeForms(url: string): FormAnalysis {
 }
 
 export function injectWarningBanner(message: string): void {
-  if (document.getElementById("compasscrew-warning")) return;
+  if (document.getElementById("securitycrew-warning")) return;
 
   const banner = document.createElement("div");
-  banner.id = "compasscrew-warning";
+  banner.id = "securitycrew-warning";
   banner.innerHTML = `
     <div style="
       position: fixed;
@@ -82,8 +82,8 @@ export function injectWarningBanner(message: string): void {
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
         <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
       </svg>
-      <span style="flex:1"><strong>CompassCrew:</strong> ${message}</span>
-      <button id="compasscrew-dismiss" style="
+      <span style="flex:1"><strong>SecurityCrew:</strong> ${message}</span>
+      <button id="securitycrew-dismiss" style="
         background: rgba(255,255,255,0.2);
         border: none;
         color: white;
@@ -97,7 +97,7 @@ export function injectWarningBanner(message: string): void {
 
   document.body.prepend(banner);
 
-  document.getElementById("compasscrew-dismiss")?.addEventListener("click", () => {
+  document.getElementById("securitycrew-dismiss")?.addEventListener("click", () => {
     banner.remove();
   });
 }

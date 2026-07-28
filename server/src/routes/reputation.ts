@@ -29,7 +29,7 @@ async function checkGoogleSafeBrowsing(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client: { clientId: "compasscrew", clientVersion: "1.0.0" },
+          client: { clientId: "securitycrew", clientVersion: "1.0.0" },
           threatInfo: {
             threatTypes: [
               "MALWARE",

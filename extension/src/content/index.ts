@@ -1,3 +1,4 @@
+import type { FormAnalysis } from "@shared/types";
 import { analyzeForms, injectWarningBanner } from "../services/form-analyzer";
 
 let currentUrl = window.location.href;
@@ -8,16 +9,22 @@ function checkForms() {
     if (analysis.warning) {
       injectWarningBanner(analysis.warning);
     }
+    chrome.runtime.sendMessage({
+      type: "FORM_DATA",
+      url: currentUrl,
+      forms: {
+        hasPasswordFields: analysis.hasPasswordFields,
+        hasCreditCardFields: analysis.hasCreditCardFields,
+        hasLoginForm: analysis.hasLoginForm,
+        isHTTP: analysis.isHTTP,
+        formCount: analysis.formCount,
+        warning: analysis.warning,
+      } satisfies FormAnalysis,
+    });
   } catch {
     // silently fail on restricted pages
   }
 }
-
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === "HEADERS_COLLECTED" && message.url === currentUrl) {
-    // headers received for current page, could re-analyze if needed
-  }
-});
 
 checkForms();
 
@@ -33,4 +40,4 @@ observer.observe(document.body || document.documentElement, {
   subtree: true,
 });
 
-console.log("CompassCrew content script loaded.");
+console.log("SecurityCrew content script loaded.");

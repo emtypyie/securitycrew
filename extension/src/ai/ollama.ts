@@ -1,134 +1,194 @@
-import type { SecurityReport, ChatMessage } from "@shared/types";
+import type { SecurityReport, ChatMessage, AIProvider, ExtensionSettings } from "@shared/types";
 
-let cachedSettings: { ollamaUrl: string; ollamaModel: string } | null = null;
-let ollamaAvailable: boolean | null = null;
-let modelReady: boolean | null = null;
-let pullInProgress = false;
+let currentSettings: ExtensionSettings | null = null;
+let serverAvailable: boolean | null = null;
 
-async function getSettings(): Promise<{ ollamaUrl: string; ollamaModel: string }> {
-  if (cachedSettings) return cachedSettings;
-  try {
-    const stored = await chrome.storage.local.get("settings");
-    const s = stored.settings || {};
-    cachedSettings = {
-      ollamaUrl: s.ollamaUrl || "http://localhost:11434",
-      ollamaModel: s.ollamaModel || "llama3.2:3b",
-    };
-    return cachedSettings;
-  } catch {
-    return { ollamaUrl: "http://localhost:11434", ollamaModel: "llama3.2:3b" };
+export function configureAI(settings: ExtensionSettings): void {
+  const changed =
+    !currentSettings ||
+    settings.aiProvider !== currentSettings.aiProvider ||
+    settings.aiServerUrl !== currentSettings.aiServerUrl ||
+    settings.aiModel !== currentSettings.aiModel ||
+    settings.aiApiKey !== currentSettings.aiApiKey;
+
+  if (changed) {
+    currentSettings = settings;
+    serverAvailable = null;
   }
 }
 
 export function resetAICache(): void {
-  cachedSettings = null;
-  ollamaAvailable = null;
-  modelReady = null;
+  serverAvailable = null;
 }
 
-// --- Check if Ollama is reachable ---
-export async function isOllamaAvailable(): Promise<boolean> {
-  if (ollamaAvailable !== null) return ollamaAvailable;
-  const settings = await getSettings();
-  try {
-    const resp = await fetch(`${settings.ollamaUrl}/api/tags`, {
-      method: "GET",
-      signal: AbortSignal.timeout(3000),
-    });
-    ollamaAvailable = resp.ok;
-    if (ollamaAvailable) {
-      await checkModelReady();
-    }
-    return ollamaAvailable;
-  } catch {
-    ollamaAvailable = false;
-    return false;
-  }
+function getSettings(): ExtensionSettings {
+  return currentSettings || {
+    enableNotifications: true,
+    enableFormGuard: true,
+    educationalMode: false,
+    backendUrl: "",
+    aiProvider: "llamacpp",
+    aiServerUrl: "http://localhost:8080",
+    aiModel: "local-model",
+    aiApiKey: "",
+  };
 }
 
-// --- Check if the model is installed ---
-async function checkModelReady(): Promise<boolean> {
-  if (modelReady !== null) return modelReady;
-  const settings = await getSettings();
+// --- Provider-specific availability checks ---
+
+async function checkLlamaCpp(): Promise<boolean> {
+  const url = getSettings().aiServerUrl;
   try {
-    const resp = await fetch(`${settings.ollamaUrl}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    const models = data.models || [];
-    modelReady = models.some((m: any) =>
-      m.name === settings.ollamaModel ||
-      m.name === `${settings.ollamaModel}:latest` ||
-      m.name?.startsWith(settings.ollamaModel)
-    );
-    return modelReady ?? false;
+    const resp = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) });
+    return resp.ok;
   } catch {
     return false;
   }
 }
 
-// --- Auto-pull the model if not installed ---
-async function ensureModel(): Promise<boolean> {
-  if (modelReady) return true;
-  if (pullInProgress) return false;
+async function checkGemini(): Promise<boolean> {
+  const key = getSettings().aiApiKey;
+  return key.length > 10;
+}
 
-  const available = await isOllamaAvailable();
-  if (!available) return false;
+async function checkOpenAI(): Promise<boolean> {
+  const key = getSettings().aiApiKey;
+  return key.length > 10;
+}
 
-  const ready = await checkModelReady();
-  if (ready) return true;
+export async function isServerAvailable(): Promise<boolean> {
+  if (serverAvailable !== null) return serverAvailable;
 
-  // Pull the model
-  pullInProgress = true;
-  const settings = await getSettings();
+  const s = getSettings();
+  switch (s.aiProvider) {
+    case "llamacpp":
+      serverAvailable = await checkLlamaCpp();
+      break;
+    case "gemini":
+      serverAvailable = await checkGemini();
+      break;
+    case "openai":
+      serverAvailable = await checkOpenAI();
+      break;
+    default:
+      serverAvailable = false;
+  }
+  return serverAvailable;
+}
 
+// --- Chat completion per provider ---
+
+async function chatLlamaCpp(messages: { role: string; content: string }[]): Promise<string | null> {
+  const s = getSettings();
   try {
-    const resp = await fetch(`${settings.ollamaUrl}/api/pull`, {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const resp = await fetch(`${s.aiServerUrl}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: settings.ollamaModel }),
-      signal: AbortSignal.timeout(120000), // 2 min timeout for pull
+      body: JSON.stringify({ model: s.aiModel, messages, temperature: 0.4, max_tokens: 512 }),
+      signal: controller.signal,
     });
-
-    if (resp.ok) {
-      modelReady = true;
-      return true;
-    }
-    return false;
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content;
+    return content && content.length > 10 ? content : null;
   } catch {
-    return false;
-  } finally {
-    pullInProgress = false;
+    return null;
   }
 }
 
-// --- Generate a detailed security report as plain text for the AI ---
+async function chatGemini(messages: { role: string; content: string }[]): Promise<string | null> {
+  const s = getSettings();
+  const model = s.aiModel || "gemini-1.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${s.aiApiKey}`;
+
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
+  const systemMsg = messages.find((m) => m.role === "system");
+
+  const body: Record<string, unknown> = { contents };
+  if (systemMsg) {
+    body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+  }
+  body.generationConfig = { temperature: 0.4, maxOutputTokens: 512 };
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return text && text.length > 10 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+async function chatOpenAI(messages: { role: string; content: string }[]): Promise<string | null> {
+  const s = getSettings();
+  const baseUrl = s.aiServerUrl || "https://api.openai.com/v1";
+  const model = s.aiModel || "gpt-4o-mini";
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${s.aiApiKey}`,
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 512 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content;
+    return content && content.length > 10 ? content : null;
+  } catch {
+    return null;
+  }
+}
+
+async function chatCompletion(messages: { role: string; content: string }[]): Promise<string | null> {
+  const s = getSettings();
+  switch (s.aiProvider) {
+    case "llamacpp": return chatLlamaCpp(messages);
+    case "gemini": return chatGemini(messages);
+    case "openai": return chatOpenAI(messages);
+    default: return null;
+  }
+}
+
+// --- Report text generation (unchanged) ---
+
 export function generateReportText(report: SecurityReport): string {
   const lines: string[] = [];
 
-  lines.push("=" .repeat(60));
-  lines.push("SECURITY AUDIT REPORT");
-  lines.push("Generated by CompassCrew");
-  lines.push("=" .repeat(60));
+  lines.push("SECURITY AUDIT REPORT - SecurityCrew");
+  lines.push("=".repeat(50));
   lines.push("");
-
-  // Target
   lines.push(`TARGET: ${report.url}`);
   lines.push(`DOMAIN: ${report.domain.domain}`);
-  lines.push(`ANALYZED: ${new Date(report.timestamp).toISOString()}`);
+  lines.push(`DATE: ${new Date(report.timestamp).toISOString()}`);
   lines.push("");
-
-  // Overall Score
-  lines.push("-".repeat(60));
-  lines.push("OVERALL ASSESSMENT");
-  lines.push("-".repeat(60));
-  lines.push(`Security Score: ${report.score.total}/100`);
-  lines.push(`Grade: ${report.score.grade}`);
-  lines.push(`Risk Level: ${report.score.riskLevel.toUpperCase()}`);
+  lines.push(`SCORE: ${report.score.total}/100 (Grade: ${report.score.grade}, Risk: ${report.score.riskLevel})`);
   lines.push("");
-
-  // Score Breakdown
   lines.push("Score Breakdown:");
   lines.push(`  HTTPS:            ${report.score.breakdown.https}/100`);
   lines.push(`  TLS/SSL:          ${report.score.breakdown.tls}/100`);
@@ -138,292 +198,154 @@ export function generateReportText(report: SecurityReport): string {
   lines.push(`  Phishing Checks:  ${report.score.breakdown.phishing}/100`);
   lines.push(`  Form Safety:      ${report.score.breakdown.formSafety}/100`);
   lines.push("");
-
-  // HTTPS & TLS
-  lines.push("-".repeat(60));
-  lines.push("HTTPS & TLS CERTIFICATE");
-  lines.push("-".repeat(60));
-  lines.push(`HTTPS Enabled: ${report.https ? "YES" : "NO"}`);
-  lines.push(`Certificate Valid: ${report.tls.valid ? "YES" : "NO"}`);
-  if (report.tls.issuer) lines.push(`Issuer: ${report.tls.issuer}`);
-  if (report.tls.protocol) lines.push(`Protocol: ${report.tls.protocol}`);
-  if (report.tls.validFrom) lines.push(`Valid From: ${report.tls.validFrom}`);
-  if (report.tls.validTo) lines.push(`Valid To: ${report.tls.validTo}`);
-  if (report.tls.daysUntilExpiry !== undefined) lines.push(`Days Until Expiry: ${report.tls.daysUntilExpiry}`);
-  if (report.tls.selfSigned) lines.push("WARNING: Self-signed certificate detected");
-  if (report.tls.weakCipher) lines.push("WARNING: Weak encryption cipher detected");
-  if (report.tls.mixedContent) lines.push("WARNING: Mixed content detected");
+  lines.push("HTTPS & TLS:");
+  lines.push(`  HTTPS: ${report.https ? "YES" : "NO"}`);
+  lines.push(`  Certificate: ${report.tls.valid ? "Valid" : "INVALID"}`);
+  if (report.tls.issuer) lines.push(`  Issuer: ${report.tls.issuer}`);
+  if (report.tls.protocol) lines.push(`  Protocol: ${report.tls.protocol}`);
+  if (report.tls.selfSigned) lines.push("  WARNING: Self-signed certificate");
+  if (report.tls.weakCipher) lines.push("  WARNING: Weak encryption");
   lines.push("");
-
-  // Security Headers
-  lines.push("-".repeat(60));
-  lines.push("SECURITY HEADERS");
-  lines.push("-".repeat(60));
-  const presentHeaders = report.headers.filter((h) => h.present);
-  const missingHeaders = report.headers.filter((h) => !h.present);
-  lines.push(`Present: ${presentHeaders.length}/${report.headers.length}`);
-  lines.push("");
+  lines.push(`Security Headers (${report.headers.filter((h) => h.present).length}/${report.headers.length} present):`);
   for (const h of report.headers) {
-    const status = h.present ? "PRESENT" : "MISSING";
-    lines.push(`  [${status}] ${h.name} (${h.severity})`);
+    const tag = h.present ? "OK" : "MISSING";
+    lines.push(`  [${tag}] ${h.name} (${h.severity})`);
     if (h.present && h.value) lines.push(`    Value: ${h.value}`);
     if (!h.present) lines.push(`    Risk: ${h.description}`);
-    if (!h.present) lines.push(`    Fix: ${h.recommendation}`);
   }
   lines.push("");
-
-  // Domain Analysis
-  lines.push("-".repeat(60));
-  lines.push("DOMAIN ANALYSIS");
-  lines.push("-".repeat(60));
-  lines.push(`Domain: ${report.domain.domain}`);
-  if (report.domain.ageDays !== undefined) {
-    lines.push(`Domain Age: ${report.domain.ageDays} days (${Math.floor(report.domain.ageDays / 365)} years)`);
-  }
-  if (report.domain.creationDate) lines.push(`Created: ${report.domain.creationDate}`);
-  if (report.domain.registrar) lines.push(`Registrar: ${report.domain.registrar}`);
+  lines.push("Domain Analysis:");
+  lines.push(`  Domain: ${report.domain.domain}`);
+  if (report.domain.ageDays !== undefined) lines.push(`  Age: ${report.domain.ageDays} days`);
+  const signals = [
+    report.domain.suspiciousTLD && "Suspicious TLD",
+    report.domain.typosquatting && "Typosquatting",
+    report.domain.homographAttack && "Homograph Attack",
+    report.domain.ipBasedURL && "IP-based URL",
+    report.domain.excessiveSubdomains && "Excessive Subdomains",
+  ].filter(Boolean);
+  lines.push(`  Phishing Signals: ${signals.length > 0 ? signals.join(", ") : "None"}`);
   lines.push("");
-  lines.push("Phishing Indicators:");
-  lines.push(`  Suspicious TLD:      ${report.domain.suspiciousTLD ? "YES - RISK" : "No"}`);
-  lines.push(`  Typosquatting:       ${report.domain.typosquatting ? "YES - RISK" : "No"}`);
-  lines.push(`  Homograph Attack:    ${report.domain.homographAttack ? "YES - RISK" : "No"}`);
-  lines.push(`  IP-based URL:        ${report.domain.ipBasedURL ? "YES - RISK" : "No"}`);
-  lines.push(`  Excessive Subdomains:${report.domain.excessiveSubdomains ? "YES - RISK" : "No"}`);
-  lines.push(`  URL Shortener:       ${report.domain.urlShortener ? "YES - RISK" : "No"}`);
-  lines.push(`  Suspicion Score:     ${report.domain.suspiciousScore}/100`);
-  lines.push("");
-
-  // Reputation
-  lines.push("-".repeat(60));
-  lines.push("REPUTATION");
-  lines.push("-".repeat(60));
-  lines.push(`Overall Status: ${report.reputation.status.toUpperCase()}`);
+  lines.push(`Reputation: ${report.reputation.status}`);
   for (const src of report.reputation.sources) {
     lines.push(`  ${src.name}: ${src.status}`);
   }
   lines.push("");
-
-  // Form Analysis
-  lines.push("-".repeat(60));
-  lines.push("FORM ANALYSIS");
-  lines.push("-".repeat(60));
-  lines.push(`Total Forms: ${report.forms.formCount}`);
-  lines.push(`Password Fields: ${report.forms.hasPasswordFields ? "DETECTED" : "None"}`);
-  lines.push(`Credit Card Fields: ${report.forms.hasCreditCardFields ? "DETECTED" : "None"}`);
-  lines.push(`Login Form: ${report.forms.hasLoginForm ? "DETECTED" : "None"}`);
-  lines.push(`HTTP (Unencrypted): ${report.forms.isHTTP ? "YES - DANGER" : "No"}`);
-  if (report.forms.warning) lines.push(`WARNING: ${report.forms.warning}`);
+  lines.push(`Forms: ${report.forms.hasPasswordFields ? "Password fields" : "None"}${report.forms.isHTTP ? " (UNENCRYPTED)" : ""}`);
+  if (report.forms.warning) lines.push(`  WARNING: ${report.forms.warning}`);
   lines.push("");
-
-  lines.push("=" .repeat(60));
   lines.push("END OF REPORT");
-  lines.push("=" .repeat(60));
 
   return lines.join("\n");
 }
 
-// --- Generate AI summary using the full report as context ---
+// --- Generate summary ---
+
 export async function generateSummary(report: SecurityReport): Promise<string> {
-  const settings = await getSettings();
   const reportText = generateReportText(report);
+  await chrome.storage.local.set({ [`reportText_${report.url}`]: reportText });
 
-  // Try Ollama first
-  const available = await isOllamaAvailable();
+  const available = await isServerAvailable();
   if (available) {
-    const ready = await ensureModel();
-    if (ready) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-
-        const response = await fetch(`${settings.ollamaUrl}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: settings.ollamaModel,
-            messages: [
-              {
-                role: "system",
-                content: `You are CompassCrew, an expert cybersecurity advisor. You have been given a detailed security audit report for a website. Your job is to summarize the findings in simple, everyday language that a non-technical person can understand.
+    const summary = await chatCompletion([
+      {
+        role: "system",
+        content: `You are SecurityCrew, an expert cybersecurity advisor. You receive a detailed security audit report for a website. Summarize it for a non-technical user.
 
 RULES:
-1. Start with a one-line overall verdict (Safe / Caution / Dangerous)
-2. List the top 3-5 most important findings, explained simply
-3. Mention specific headers that are missing or present
+1. Start with a one-line verdict: Safe / Use Caution / Dangerous
+2. List the top 3-5 findings in simple language
+3. Explain what missing headers mean in plain terms
 4. Note any phishing or domain red flags
-5. End with a clear recommendation (safe to browse, avoid entering info, stay away entirely)
-6. Use no more than 150 words
-7. Never use unexplained jargon - if you say "CSP", explain what it means
-8. Use plain language a grandparent would understand`,
-              },
-              {
-                role: "user",
-                content: `Here is the full security audit report for ${report.domain.domain}. Please summarize it:\n\n${reportText}`,
-              },
-            ],
-            stream: false,
-          }),
-          signal: controller.signal,
-        });
+5. End with a clear recommendation
+6. Max 120 words
+7. Never use jargon without explaining it`,
+      },
+      {
+        role: "user",
+        content: `Summarize this security report:\n\n${reportText}`,
+      },
+    ]);
 
-        clearTimeout(timeout);
-
-        if (response.ok) {
-          const data = await response.json();
-          const content = data.message?.content;
-          if (content && content.length > 20) {
-            // Store the report text for chat context
-            await chrome.storage.local.set({ [`reportText_${report.url}`]: reportText });
-            return content;
-          }
-        }
-      } catch {
-        // fall through to fallback
-      }
-    }
+    if (summary) return summary;
   }
 
-  // Store report text even without AI
-  await chrome.storage.local.set({ [`reportText_${report.url}`]: reportText });
   return generateFallbackSummary(report);
 }
 
-// --- Chat using the stored report as context ---
+// --- Chat with AI ---
+
 export async function chatWithAI(
   messages: ChatMessage[],
   reportContext?: SecurityReport
 ): Promise<string> {
-  const settings = await getSettings();
+  const available = await isServerAvailable();
+  const s = getSettings();
 
-  // Get stored report text for full context
+  if (!available) {
+    switch (s.aiProvider) {
+      case "llamacpp":
+        return "llama.cpp server is not running.\n\nRun this in a terminal:\nllama-server -m model.gguf --port 8080\n\nThe extension will connect automatically.";
+      case "gemini":
+        return "Gemini API key is not configured.\n\nTo set up:\n1. Go to aistudio.google.com\n2. Create an API key\n3. Paste it in SecurityCrew settings";
+      case "openai":
+        return "OpenAI API key is not configured.\n\nTo set up:\n1. Go to platform.openai.com\n2. Create an API key\n3. Paste it in SecurityCrew settings";
+      default:
+        return "AI is not configured. Open SecurityCrew settings to set up an AI provider.";
+    }
+  }
+
   let reportText = "";
   if (reportContext) {
     const stored = await chrome.storage.local.get(`reportText_${reportContext.url}`);
     reportText = stored[`reportText_${reportContext.url}`] || generateReportText(reportContext);
   }
 
-  const available = await isOllamaAvailable();
-  if (!available) {
-    return "Ollama is not running. To use the AI chat:\n\n1. Install Ollama: ollama.ai\n2. Open a terminal and run: ollama serve\n3. The extension will auto-pull the model on first use.";
-  }
+  const systemPrompt = reportContext
+    ? `You are SecurityCrew, a cybersecurity advisor. You have a full security audit report for ${reportContext.domain.domain} (Score: ${reportContext.score.total}/100, Grade: ${reportContext.score.grade}).
 
-  const ready = await ensureModel();
-  if (!ready) {
-    return "The AI model is being downloaded (llama3.2:3b). This may take a minute on first use. Try your question again in a moment.";
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-
-    const systemPrompt = reportContext
-      ? `You are CompassCrew, a friendly cybersecurity advisor. You have a full security audit report for ${reportContext.domain.domain} (Score: ${reportContext.score.total}/100, Grade: ${reportContext.score.grade}).
-
-FULL REPORT:
+REPORT:
 ${reportText}
 
-Answer the user's questions about this website's security. Be specific — reference actual headers, scores, and findings from the report. Use everyday language. If the user asks about something not in the report, explain the general concept.`
-      : `You are CompassCrew, a friendly cybersecurity advisor. Answer the user's questions about website security in general. Be concise, use everyday language, and give practical advice.`;
+Answer questions about this website's security. Reference specific findings from the report. Use everyday language.`
+    : `You are SecurityCrew, a cybersecurity advisor. Answer questions about website security. Be concise and practical.`;
 
-    const response = await fetch(`${settings.ollamaUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: settings.ollamaModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        stream: false,
-      }),
-      signal: controller.signal,
-    });
+  const reply = await chatCompletion([
+    { role: "system", content: systemPrompt },
+    ...messages,
+  ]);
 
-    clearTimeout(timeout);
-
-    if (!response.ok) throw new Error(`Ollama returned ${response.status}`);
-
-    const data = await response.json();
-    const content = data.message?.content;
-    if (content && content.length > 5) {
-      return content;
-    }
-    throw new Error("Empty response");
-  } catch (e: any) {
-    if (e.name === "AbortError") {
-      return "AI took too long to respond. The model might still be loading — try again in a moment.";
-    }
-    return "AI error. Make sure Ollama is running (ollama serve) and the model is ready.";
-  }
+  return reply || "AI could not generate a response. Check your API configuration.";
 }
 
-// --- Fallback summary when Ollama is not available ---
+// --- Fallback when no AI ---
+
 function generateFallbackSummary(report: SecurityReport): string {
   const score = report.score.total;
   const parts: string[] = [];
 
-  if (score >= 85) {
-    parts.push(`VERDICT: This site looks safe. Score: ${score}/100 (Grade: ${report.score.grade}).`);
-  } else if (score >= 60) {
-    parts.push(`VERDICT: Exercise caution on this site. Score: ${score}/100 (Grade: ${report.score.grade}).`);
-  } else if (score >= 30) {
-    parts.push(`VERDICT: This site has serious security issues. Score: ${score}/100 (Grade: ${report.score.grade}).`);
-  } else {
-    parts.push(`VERDICT: DANGEROUS — avoid this site. Score: ${score}/100 (Grade: ${report.score.grade}).`);
-  }
+  if (score >= 85) parts.push(`VERDICT: This site looks safe. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  else if (score >= 60) parts.push(`VERDICT: Use caution on this site. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  else if (score >= 30) parts.push(`VERDICT: Serious security issues found. Score: ${score}/100 (Grade: ${report.score.grade}).`);
+  else parts.push(`VERDICT: DANGEROUS — avoid this site. Score: ${score}/100 (Grade: ${report.score.grade}).`);
 
-  if (!report.https) {
-    parts.push("This site does NOT use HTTPS. Any data you send (passwords, credit cards) can be intercepted by anyone on the same network.");
-  }
+  if (!report.https) parts.push("No HTTPS — your data is sent in plain text and can be intercepted.");
 
-  if (report.tls.selfSigned) {
-    parts.push("The security certificate is self-signed, meaning the site's identity cannot be verified by a trusted authority.");
-  }
-  if (report.tls.weakCipher) {
-    parts.push("This site uses outdated encryption that could be broken by attackers.");
-  }
+  if (report.tls.selfSigned) parts.push("Self-signed certificate — the site's identity cannot be verified.");
+  if (report.tls.weakCipher) parts.push("Uses outdated encryption.");
 
-  const presentHeaders = report.headers.filter((h) => h.present);
   const missingHigh = report.headers.filter((h) => !h.present && (h.severity === "high" || h.severity === "critical"));
-  const missingMed = report.headers.filter((h) => !h.present && h.severity === "medium");
+  if (missingHigh.length > 0) parts.push(`Missing critical headers: ${missingHigh.map((h) => h.name).join(", ")}. This leaves the site vulnerable to attacks.`);
 
-  if (missingHigh.length > 0) {
-    parts.push(`Missing critical security headers: ${missingHigh.map((h) => h.name).join(", ")}. This leaves the site vulnerable to script injection (XSS) and clickjacking attacks.`);
-  }
-  if (presentHeaders.length > 0) {
-    parts.push(`Good: ${presentHeaders.map((h) => h.name).join(", ")} ${presentHeaders.length === 1 ? "is" : "are"} configured.`);
-  }
+  if (report.domain.homographAttack) parts.push("RED FLAG: Domain mimics a real brand name — likely phishing.");
+  if (report.domain.typosquatting) parts.push("RED FLAG: Domain looks like a misspelling of a known site.");
+  if (report.domain.suspiciousTLD) parts.push("Uses a TLD commonly seen on scam sites.");
+  if (report.domain.ageDays !== undefined && report.domain.ageDays < 30) parts.push(`Domain is only ${report.domain.ageDays} days old.`);
 
-  if (report.domain.homographAttack) {
-    parts.push("RED FLAG: This domain uses special characters that mimic a real brand name — this is a homograph attack used in phishing.");
-  }
-  if (report.domain.typosquatting) {
-    parts.push("RED FLAG: This domain name looks like a misspelling of a well-known website — possible phishing.");
-  }
-  if (report.domain.suspiciousTLD) {
-    parts.push("This domain uses a top-level domain commonly associated with scam sites.");
-  }
-  if (report.domain.ageDays !== undefined && report.domain.ageDays < 30) {
-    parts.push(`This domain was registered only ${report.domain.ageDays} days ago — newly created domains are higher risk.`);
-  }
+  if (report.reputation.status === "malicious") parts.push("Flagged as MALICIOUS. Do NOT enter personal information.");
+  else if (report.reputation.status === "suspicious") parts.push("Flagged as suspicious by security sources.");
 
-  if (report.reputation.status === "malicious") {
-    parts.push("This site is flagged as MALICIOUS by security databases. Do NOT enter personal information.");
-  } else if (report.reputation.status === "suspicious") {
-    parts.push("This site has been flagged as suspicious by security sources.");
-  }
-
-  if (report.forms.isHTTP && (report.forms.hasPasswordFields || report.forms.hasCreditCardFields)) {
-    parts.push("DANGER: You are about to type sensitive data into an UNENCRYPTED connection — this data can be easily stolen.");
-  }
-
-  if (score >= 80) {
-    parts.push("RECOMMENDATION: Safe for normal browsing. As with any site, be cautious with sensitive information.");
-  } else if (score >= 50) {
-    parts.push("RECOMMENDATION: Browse with caution. Avoid entering passwords, credit cards, or personal information.");
-  } else {
-    parts.push("RECOMMENDATION: Do NOT enter any personal or payment information on this site. Consider leaving.");
-  }
+  parts.push(score >= 60 ? "Browse with caution. Avoid entering sensitive info." : "Do NOT enter personal or payment information.");
 
   return parts.join("\n\n");
 }

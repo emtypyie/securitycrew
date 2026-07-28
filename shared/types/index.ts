@@ -108,11 +108,15 @@ export interface HistoryEntry {
   favicon?: string;
 }
 
+export type AIProvider = "llamacpp" | "gemini" | "openai";
+
 export interface ExtensionSettings {
   enableNotifications: boolean;
   enableFormGuard: boolean;
   educationalMode: boolean;
   backendUrl: string;
-  ollamaUrl: string;
-  ollamaModel: string;
+  aiProvider: AIProvider;
+  aiServerUrl: string;
+  aiModel: string;
+  aiApiKey: string;
 }
