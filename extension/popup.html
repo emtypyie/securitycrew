@@ -445,7 +445,10 @@
         showError("Navigate to a website to check its security.");
         return;
       }
-      const resp = await chrome.runtime.sendMessage({ type: "ANALYZE_URL", url: tab.url, tabId: tab.id });
+      const resp = await Promise.race([
+        chrome.runtime.sendMessage({ type: "ANALYZE_URL", url: tab.url, tabId: tab.id }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
+      ]);
       if (resp) {
         report = resp;
         showState("score");

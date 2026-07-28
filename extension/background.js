@@ -43,13 +43,7 @@ async function fetchHeaders(url) {
   const cached = headerCache.get(url);
   if (cached && Object.keys(cached).length > 0) return cached;
   try {
-    const resp = await fetch(url, { method: "HEAD", mode: "no-cors", signal: AbortSignal.timeout(5000) });
-    const headers = {};
-    resp.headers.forEach((value, key) => { headers[key] = value; });
-    if (Object.keys(headers).length > 0) return headers;
-  } catch {}
-  try {
-    const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(5000) });
+    const resp = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
     const headers = {};
     resp.headers.forEach((value, key) => { headers[key] = value; });
     return headers;
