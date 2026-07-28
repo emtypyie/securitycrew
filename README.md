@@ -254,8 +254,8 @@ The final score is calculated from weighted components:
 securitycrew/
 ├── extension/                  # Chrome Extension
 │   ├── src/
-│   │   ├── ai/                 # AI provider integration
-│   │   │   └── ollama.ts       # llama.cpp, Gemini, OpenAI clients
+│   │   │   ├── ai/             # AI provider integration
+│   │   │   │   └── ai.ts       # llama.cpp, Gemini, OpenAI clients
 │   │   ├── background/         # Service worker
 │   │   │   └── index.ts        # Message handling, analysis orchestration
 │   │   ├── components/         # React UI components

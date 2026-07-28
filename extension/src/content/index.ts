@@ -39,5 +39,3 @@ observer.observe(document.body || document.documentElement, {
   childList: true,
   subtree: true,
 });
-
-console.log("SecurityCrew content script loaded.");

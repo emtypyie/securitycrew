@@ -4,7 +4,7 @@ import { analyzeTLS } from "../services/tls-analyzer";
 import { analyzeDomain, getDomainAge } from "../services/domain-analyzer";
 import { checkReputation } from "../services/reputation-checker";
 import { calculateScore } from "@shared/scoring/engine";
-import { generateSummary, chatWithAI, isServerAvailable, resetAICache, configureAI } from "../ai/ollama";
+import { generateSummary, chatWithAI, isServerAvailable, resetAICache, configureAI } from "../ai/ai";
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   enableNotifications: true,
@@ -219,12 +219,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 (async () => {
   const settings = await getSettings();
   configureAI(settings);
-  const available = await isServerAvailable();
-  if (available) {
-    console.log(`SecurityCrew: AI provider "${settings.aiProvider}" is configured`);
-  } else {
-    console.log("SecurityCrew: No AI configured. Open settings to set up.");
-  }
+  await isServerAvailable();
 })();
-
-console.log("SecurityCrew background service worker loaded.");

@@ -1,4 +1,4 @@
-import type { SecurityReport, ChatMessage, AIProvider, ExtensionSettings } from "@shared/types";
+import type { SecurityReport, ChatMessage, ExtensionSettings } from "@shared/types";
 
 let currentSettings: ExtensionSettings | null = null;
 let serverAvailable: boolean | null = null;

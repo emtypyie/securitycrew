@@ -31,8 +31,6 @@ export async function analyzeTLS(
 }
 
 async function probeTLS(url: string): Promise<TLSInfo> {
-  const hostname = new URL(url).hostname;
-
   // Use fetch with a HEAD request — if it succeeds over HTTPS, TLS is valid
   try {
     const resp = await fetch(url, {

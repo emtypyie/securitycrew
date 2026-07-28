@@ -276,7 +276,7 @@ Caching
 Rate limiting
 Local AI
 
-Ollama
+llama.cpp / Gemini / OpenAI-compatible
 
 Model
 
@@ -369,7 +369,7 @@ Detect suspicious URLs using heuristics (homograph characters, excessive subdoma
 Check URL reputation using Google Safe Browsing or VirusTotal.
 Detect password and payment forms and warn on unsafe pages.
 Generate a Security Health Score (0–100).
-Use a local Llama 3.2:3B model through Ollama to produce plain-English explanations.
+Use llama.cpp, Gemini, or OpenAI-compatible APIs to produce plain-English explanations.
 Provide a clean popup dashboard with the score, findings, and recommended actions.
 
 This MVP is realistic to build in a hackathon, demonstrates AI in a meaningful way, and can be extended later with history, educational features, enterprise policies, and more advanced reputation analysis.
