@@ -2,7 +2,7 @@ export async function checkReputation(url, backendUrl) {
   const sources = [];
   if (backendUrl) {
     try {
-      const resp = await fetch(`${backendUrl}/api/reputation?url=${encodeURIComponent(url)}`);
+      const resp = await fetch(`${backendUrl}/api/reputation?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(5000) });
       if (resp.ok) {
         const data = await resp.json();
         return { status: data.status, sources: data.sources };

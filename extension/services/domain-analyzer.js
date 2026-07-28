@@ -83,7 +83,7 @@ export function analyzeDomain(url) {
 export async function getDomainAge(domain, backendUrl) {
   if (backendUrl) {
     try {
-      const resp = await fetch(`${backendUrl}/api/whois?domain=${encodeURIComponent(domain)}`);
+      const resp = await fetch(`${backendUrl}/api/whois?domain=${encodeURIComponent(domain)}`, { signal: AbortSignal.timeout(5000) });
       if (resp.ok) {
         const data = await resp.json();
         return { ageDays: data.ageDays, registrar: data.registrar, creationDate: data.creationDate };

@@ -4,7 +4,7 @@ export async function analyzeTLS(url, backendUrl) {
   }
   if (backendUrl) {
     try {
-      const resp = await fetch(`${backendUrl}/api/tls?domain=${encodeURIComponent(new URL(url).hostname)}`);
+      const resp = await fetch(`${backendUrl}/api/tls?domain=${encodeURIComponent(new URL(url).hostname)}`, { signal: AbortSignal.timeout(5000) });
       if (resp.ok) return await resp.json();
     } catch {}
   }
