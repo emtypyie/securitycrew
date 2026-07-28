@@ -76,7 +76,6 @@ async function analyzeTab(tabId, url) {
     headers, tls, domain: { ...domainInfo, ...domainAge }, reputation,
     forms: formsWithHTTP, score,
   };
-  report.aiSummary = await generateSummary(report);
   await chrome.storage.local.set({ [`report_${url}`]: report });
   const historyEntry = { url, score: score.total, riskLevel: score.riskLevel, timestamp: Date.now() };
   const { history = [] } = await chrome.storage.local.get("history");
@@ -89,12 +88,18 @@ async function analyzeTab(tabId, url) {
       message: `${new URL(url).hostname} scored ${score.total}/100.`,
     });
   }
+  generateSummary(report).then((summary) => {
+    report.aiSummary = summary;
+    chrome.storage.local.set({ [`report_${url}`]: report });
+  });
   return report;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ANALYZE_URL") {
-    analyzeTab(message.tabId || 0, message.url).then((report) => sendResponse(report));
+    analyzeTab(message.tabId || 0, message.url)
+      .then((report) => sendResponse(report))
+      .catch(() => sendResponse(null));
     return true;
   }
   if (message.type === "REFRESH_AI") {
@@ -105,14 +110,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.set({ [`report_${message.url}`]: report });
         sendResponse(report);
       } else { sendResponse(null); }
-    });
+    }).catch(() => sendResponse(null));
     return true;
   }
   if (message.type === "CHECK_AI_SERVER") {
     getSettings().then((settings) => {
       configureAI(settings);
       isServerAvailable().then((available) => sendResponse({ available }));
-    });
+    }).catch(() => sendResponse({ available: false }));
     return true;
   }
   if (message.type === "FORM_DATA") {
