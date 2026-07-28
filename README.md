@@ -1,6 +1,6 @@
 # SecurityCrew
 
-AI-powered Chrome extension that tells you if a website is safe — in plain English.
+AI-powered Chrome extension that tells you if a website is safe — 
 
 No security expertise needed. Just install it and browse. SecurityCrew scans every site you visit and gives you a simple safety score.
 
