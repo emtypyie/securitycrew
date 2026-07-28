@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecurityCrew Settings</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background: #030712; color: #f9fafb;
+    min-height: 100vh; padding: 24px; max-width: 512px; margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 24px; }
+  .group { margin-bottom: 24px; }
+  .group-title {
+    font-size: 13px; font-weight: 600; color: #9ca3af;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
+  }
+  .card {
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+
+  /* Toggle */
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .toggle-label .t { font-size: 14px; font-weight: 500; }
+  .toggle-label .d { font-size: 12px; color: #6b7280; }
+  .toggle {
+    width: 44px; height: 24px; border-radius: 12px; border: none;
+    cursor: pointer; position: relative; transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle.on { background: #2563eb; }
+  .toggle.off { background: #374151; }
+  .toggle-knob {
+    position: absolute; top: 4px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; transition: left 0.2s;
+  }
+  .toggle.on .toggle-knob { left: 24px; }
+  .toggle.off .toggle-knob { left: 4px; }
+
+  /* Text input */
+  .field-label { font-size: 14px; font-weight: 500; }
+  .field-desc { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+  .text-input {
+    width: 100%; background: #1f2937; border: 1px solid #374151;
+    border-radius: 6px; padding: 8px 12px; font-size: 14px; color: #f9fafb;
+    outline: none; transition: border-color 0.15s;
+  }
+  .text-input::placeholder { color: #6b7280; }
+  .text-input:focus { border-color: #3b82f6; }
+
+  /* Provider buttons */
+  .provider-btn {
+    width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #374151; background: #1f2937; color: #d1d5db;
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .provider-btn:hover { border-color: #6b7280; }
+  .provider-btn.active {
+    background: rgba(30, 58, 138, 0.3); border-color: #3b82f6; color: #fff;
+  }
+  .provider-btn .p-label { font-size: 14px; font-weight: 500; }
+  .provider-btn .p-desc { font-size: 11px; color: #9ca3af; }
+
+  /* API key */
+  .key-wrap { position: relative; }
+  .key-toggle {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    font-size: 11px; color: #9ca3af; background: none; border: none;
+    cursor: pointer; padding: 4px 8px;
+  }
+  .key-toggle:hover { color: #fff; }
+
+  /* Info boxes */
+  .info-box {
+    background: #1f2937; border: 1px solid #374151; border-radius: 8px;
+    padding: 12px; font-size: 12px; color: #9ca3af;
+  }
+  .info-box .ib-title { font-weight: 500; color: #d1d5db; margin-bottom: 4px; }
+  .info-box p { margin-bottom: 2px; }
+  .info-box .dim { color: #6b7280; margin-top: 4px; }
+  .info-box .link { color: #93c5fd; }
+
+  /* Command box */
+  .cmd-box {
+    display: flex; align-items: center; gap: 8px;
+    background: #111827; border-radius: 6px; padding: 6px 8px; margin-top: 4px;
+  }
+  .cmd-box code { flex: 1; font-size: 11px; color: #93c5fd; font-family: monospace; }
+  .cmd-box .copy-btn {
+    font-size: 11px; color: #9ca3af; background: none; border: none;
+    cursor: pointer; white-space: nowrap;
+  }
+  .cmd-box .copy-btn:hover { color: #fff; }
+
+  /* Save button */
+  .save-btn {
+    width: 100%; padding: 10px; background: #2563eb; color: #fff;
+    border: none; border-radius: 8px; font-size: 14px; font-weight: 500;
+    cursor: pointer; transition: background 0.15s; margin-top: 24px;
+  }
+  .save-btn:hover { background: #1d4ed8; }
+</style>
+</head>
+<body>
+
+<h1>SecurityCrew Settings</h1>
+
+<!-- Protection -->
+<div class="group">
+  <div class="group-title">Protection</div>
+  <div class="card">
+    <div class="toggle-row">
+      <div class="toggle-label"><div class="t">Enable Notifications</div><div class="d">Show alerts for dangerous sites</div></div>
+      <button class="toggle on" data-key="enableNotifications"><span class="toggle-knob"></span></button>
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-label"><div class="t">Form Guard</div><div class="d">Warn when entering sensitive data on unsafe pages</div></div>
+      <button class="toggle on" data-key="enableFormGuard"><span class="toggle-knob"></span></button>
+    </div>
+    <div class="toggle-row">
+      <div class="toggle-label"><div class="t">Educational Mode</div><div class="d">Show explanations instead of just header names</div></div>
+      <button class="toggle off" data-key="educationalMode"><span class="toggle-knob"></span></button>
+    </div>
+  </div>
+</div>
+
+<!-- Backend -->
+<div class="group">
+  <div class="group-title">Backend Server</div>
+  <div class="card">
+    <div>
+      <div class="field-label">Backend URL</div>
+      <div class="field-desc">URL of the Node.js backend (leave empty for extension-only mode)</div>
+      <input class="text-input" data-key="backendUrl" placeholder="http://localhost:3000" />
+    </div>
+  </div>
+</div>
+
+<!-- AI Configuration -->
+<div class="group">
+  <div class="group-title">AI Configuration</div>
+  <div class="card">
+    <div>
+      <div class="field-label">Provider</div>
+      <div class="field-desc">Choose how AI analysis is powered</div>
+    </div>
+    <div id="providers" style="display:flex;flex-direction:column;gap:8px">
+      <button class="provider-btn active" data-value="llamacpp"><div class="p-label">llama.cpp (Local)</div><div class="p-desc">Free, runs on your machine</div></button>
+      <button class="provider-btn" data-value="gemini"><div class="p-label">Google Gemini</div><div class="p-desc">Free tier available</div></button>
+      <button class="provider-btn" data-value="openai"><div class="p-label">OpenAI / Compatible</div><div class="p-desc">GPT-4o, Together, Groq, etc.</div></button>
+    </div>
+
+    <div id="urlField">
+      <div class="field-label" id="urlLabel">Server URL</div>
+      <div class="field-desc" id="urlDesc">URL of your local llama.cpp server</div>
+      <input class="text-input" id="urlInput" data-key="aiServerUrl" placeholder="http://localhost:8080" />
+    </div>
+
+    <div id="modelField">
+      <div class="field-label" id="modelLabel">Model</div>
+      <div class="field-desc" id="modelDesc">Model name (auto-detected by llama.cpp)</div>
+      <input class="text-input" id="modelInput" data-key="aiModel" placeholder="local-model" />
+    </div>
+
+    <div id="keyField" style="display:none">
+      <div class="field-label">API Key</div>
+      <div class="field-desc" id="keyDesc">Get a free key at aistudio.google.com</div>
+      <div class="key-wrap">
+        <input class="text-input" id="keyInput" type="password" data-key="aiApiKey" placeholder="sk-..." style="padding-right:56px" />
+        <button class="key-toggle" id="keyToggle">Show</button>
+      </div>
+    </div>
+
+    <div id="llamacppGuide" class="info-box">
+      <div class="ib-title">Quick Start</div>
+      <p>1. Install llama.cpp from github.com/ggerganov/llama.cpp</p>
+      <p>2. Download a GGUF model (Q4_K_M recommended)</p>
+      <p>3. Run this command:</p>
+      <div class="cmd-box">
+        <code>llama-server -m model.gguf --port 8080</code>
+        <button class="copy-btn" id="copyCmd">Copy</button>
+      </div>
+      <div class="dim">The extension auto-connects once the server is running.</div>
+    </div>
+
+    <div id="geminiGuide" class="info-box" style="display:none">
+      <div class="ib-title">Setup</div>
+      <p>1. Go to <span class="link">aistudio.google.com</span></p>
+      <p>2. Click "Get API Key"</p>
+      <p>3. Paste the key above</p>
+      <div class="dim">Free tier: 15 RPM, 1M tokens/day</div>
+    </div>
+
+    <div id="openaiGuide" class="info-box" style="display:none">
+      <div class="ib-title">Compatible Providers</div>
+      <p>OpenAI, Together AI, Groq, DeepSeek, OpenRouter, etc.</p>
+      <p style="margin-top:4px">Set the API Base URL to match your provider.</p>
+    </div>
+  </div>
+</div>
+
+<button class="save-btn" id="saveBtn">Save Settings</button>
+
+<script>
+(function() {
+  const DEFAULTS = {
+    enableNotifications: true,
+    enableFormGuard: true,
+    educationalMode: false,
+    backendUrl: "",
+    aiProvider: "llamacpp",
+    aiServerUrl: "http://localhost:8080",
+    aiModel: "local-model",
+    aiApiKey: "",
+  };
+
+  const FIELDS = {
+    llamacpp: { urlLabel: "Server URL", urlDesc: "URL of your local llama.cpp server", urlPlaceholder: "http://localhost:8080", modelLabel: "Model", modelDesc: "Model name (auto-detected by llama.cpp)", modelPlaceholder: "local-model", needsKey: false },
+    gemini: { urlLabel: "API Base URL", urlDesc: "Leave as default unless using a proxy", urlPlaceholder: "https://generativelanguage.googleapis.com", modelLabel: "Model", modelDesc: "gemini-1.5-flash (free) or gemini-1.5-pro", modelPlaceholder: "gemini-1.5-flash", needsKey: true, keyDesc: "Get a free key at aistudio.google.com" },
+    openai: { urlLabel: "API Base URL", urlDesc: "Use OpenAI, Together AI, Groq, etc.", urlPlaceholder: "https://api.openai.com/v1", modelLabel: "Model", modelDesc: "e.g. gpt-4o-mini, llama-3.1-70b, mixtral-8x7b", modelPlaceholder: "gpt-4o-mini", needsKey: true, keyDesc: "Get a key from your provider's dashboard" },
+  };
+
+  let settings = { ...DEFAULTS };
+
+  // Load
+  chrome.runtime.sendMessage({ type: "GET_SETTINGS" }).then((data) => {
+    if (data) { settings = { ...DEFAULTS, ...data }; apply(); }
+  });
+
+  function apply() {
+    // Toggles
+    document.querySelectorAll(".toggle").forEach((btn) => {
+      const key = btn.dataset.key;
+      const val = !!settings[key];
+      btn.className = "toggle " + (val ? "on" : "off");
+      btn.onclick = () => { settings[key] = !settings[key]; apply(); };
+    });
+
+    // Text inputs
+    document.querySelectorAll(".text-input[data-key]").forEach((inp) => {
+      if (inp.dataset.key === "aiApiKey") return; // handled separately
+      inp.value = settings[inp.dataset.key] || "";
+      inp.oninput = () => { settings[inp.dataset.key] = inp.value; };
+    });
+
+    // Provider buttons
+    const provider = settings.aiProvider;
+    document.querySelectorAll(".provider-btn").forEach((btn) => {
+      btn.className = "provider-btn" + (btn.dataset.value === provider ? " active" : "");
+      btn.onclick = () => { settings.aiProvider = btn.dataset.value; apply(); };
+    });
+
+    // Dynamic fields
+    const f = FIELDS[provider];
+    document.getElementById("urlLabel").textContent = f.urlLabel;
+    document.getElementById("urlDesc").textContent = f.urlDesc;
+    document.getElementById("urlInput").placeholder = f.urlPlaceholder;
+    document.getElementById("urlInput").value = settings.aiServerUrl || "";
+    document.getElementById("modelLabel").textContent = f.modelLabel;
+    document.getElementById("modelDesc").textContent = f.modelDesc;
+    document.getElementById("modelInput").placeholder = f.modelPlaceholder;
+    document.getElementById("modelInput").value = settings.aiModel || "";
+
+    // API key
+    document.getElementById("keyField").style.display = f.needsKey ? "block" : "none";
+    if (f.needsKey) {
+      document.getElementById("keyDesc").textContent = f.keyDesc;
+      document.getElementById("keyInput").value = settings.aiApiKey || "";
+    }
+
+    // Guides
+    document.getElementById("llamacppGuide").style.display = provider === "llamacpp" ? "block" : "none";
+    document.getElementById("geminiGuide").style.display = provider === "gemini" ? "block" : "none";
+    document.getElementById("openaiGuide").style.display = provider === "openai" ? "block" : "none";
+  }
+
+  // API key toggle
+  document.getElementById("keyToggle").onclick = () => {
+    const inp = document.getElementById("keyInput");
+    const btn = document.getElementById("keyToggle");
+    if (inp.type === "password") { inp.type = "text"; btn.textContent = "Hide"; }
+    else { inp.type = "password"; btn.textContent = "Show"; }
+  };
+  document.getElementById("keyInput").oninput = function() { settings.aiApiKey = this.value; };
+
+  // Copy command
+  document.getElementById("copyCmd").onclick = () => {
+    navigator.clipboard.writeText("llama-server -m model.gguf --port 8080");
+    const btn = document.getElementById("copyCmd");
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  };
+
+  // Save
+  document.getElementById("saveBtn").onclick = () => {
+    chrome.runtime.sendMessage({ type: "SAVE_SETTINGS", settings }).then(() => {
+      const btn = document.getElementById("saveBtn");
+      btn.textContent = "Saved!";
+      setTimeout(() => { btn.textContent = "Save Settings"; }, 2000);
+    });
+  };
+})();
+</script>
+</body>
+</html>
