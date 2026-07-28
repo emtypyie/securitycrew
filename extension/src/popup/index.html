@@ -1,12 +1,756 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SecurityCrew</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="./main.tsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecurityCrew</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 400px; min-height: 500px;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background: #030712; color: #f9fafb;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  .header {
+    background: #111827; border-bottom: 1px solid #1f2937;
+    padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .logo {
+    width: 32px; height: 32px; background: #2563eb; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .logo svg { width: 20px; height: 20px; color: #fff; }
+  .header-title { font-weight: 700; font-size: 18px; }
+  .ai-badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 9999px;
+    line-height: 1.4;
+  }
+  .ai-badge.on { background: #064e3b; color: #6ee7b7; }
+  .ai-badge.off { background: #1f2937; color: #6b7280; }
+  .header-right { display: flex; align-items: center; gap: 4px; }
+  .icon-btn {
+    width: 32px; height: 32px; border: none; background: none;
+    color: #9ca3af; border-radius: 6px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .icon-btn:hover { background: #1f2937; color: #fff; }
+  .scan-btn {
+    padding: 6px 12px; background: #2563eb; color: #fff; border: none;
+    border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .scan-btn:hover { background: #1d4ed8; }
+
+  /* Tabs */
+  .tabs {
+    display: flex; border-bottom: 1px solid #1f2937;
+  }
+  .tab {
+    flex: 1; padding: 10px 0; font-size: 12px; font-weight: 500;
+    background: none; border: none; color: #6b7280; cursor: pointer;
+    transition: color 0.15s;
+    border-bottom: 2px solid transparent;
+  }
+  .tab:hover { color: #d1d5db; }
+  .tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+
+  /* Content */
+  .content { padding: 16px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Loading / Error */
+  .center-state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 80px 24px; gap: 12px; text-align: center;
+  }
+  .spinner {
+    width: 32px; height: 32px; border: 3px solid #3b82f6;
+    border-top-color: transparent; border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-icon {
+    width: 48px; height: 48px; background: #1f2937; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .error-icon svg { width: 24px; height: 24px; color: #6b7280; }
+  .center-state p { font-size: 14px; color: #9ca3af; }
+  .center-state .retry { font-size: 12px; color: #60a5fa; background: none; border: none; cursor: pointer; }
+  .center-state .retry:hover { color: #93c5fd; }
+
+  /* URL bar */
+  .url-bar {
+    font-size: 11px; color: #6b7280; text-align: center;
+    margin-bottom: 12px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; max-width: 320px; margin-left: auto; margin-right: auto;
+  }
+
+  /* Score gauge */
+  .gauge-wrap { text-align: center; }
+  .gauge { position: relative; width: 112px; height: 112px; margin: 0 auto; }
+  .gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .gauge-track { fill: none; stroke: #1f2937; stroke-width: 8; }
+  .gauge-fill { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s ease-out; }
+  .gauge-label {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .gauge-score { font-size: 24px; font-weight: 700; }
+  .gauge-grade { font-size: 12px; color: #9ca3af; font-weight: 500; }
+  .risk-row {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 8px;
+  }
+  .risk-row svg { width: 20px; height: 20px; }
+  .risk-label { font-size: 14px; font-weight: 600; }
+
+  /* Stat cards */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  .stat-card {
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .stat-card .label { font-size: 11px; color: #6b7280; }
+  .stat-card .value { font-size: 14px; font-weight: 600; margin-top: 2px; }
+  .stat-card .value.good { color: #4ade80; }
+  .stat-card .value.bad { color: #f87171; }
+
+  /* Summary box */
+  .summary-box {
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 12px; margin-top: 16px;
+  }
+  .summary-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .summary-header .title { font-size: 12px; font-weight: 600; color: #60a5fa; }
+  .summary-header .refresh {
+    font-size: 10px; color: #6b7280; background: none; border: none; cursor: pointer;
+  }
+  .summary-header .refresh:hover { color: #60a5fa; }
+  .summary-header .refresh:disabled { color: #374151; }
+  .summary-text { font-size: 13px; color: #d1d5db; line-height: 1.6; white-space: pre-line; }
+
+  /* Breakdown */
+  .breakdown-box {
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 12px; margin-top: 16px;
+  }
+  .breakdown-title { font-size: 12px; font-weight: 600; color: #9ca3af; margin-bottom: 8px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-label { font-size: 11px; color: #9ca3af; width: 80px; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #1f2937; border-radius: 9999px; height: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease; }
+  .bar-fill.green { background: #22c55e; }
+  .bar-fill.yellow { background: #eab308; }
+  .bar-fill.orange { background: #f97316; }
+  .bar-fill.red { background: #ef4444; }
+  .bar-value { font-size: 11px; color: #6b7280; width: 20px; text-align: right; flex-shrink: 0; }
+
+  /* Details tab */
+  .section-title { font-size: 12px; font-weight: 600; color: #9ca3af; margin-bottom: 8px; }
+  .section-gap { margin-top: 16px; }
+
+  /* Header item */
+  .header-item {
+    border-radius: 8px; padding: 12px; margin-bottom: 8px;
+  }
+  .header-item.present { background: rgba(5, 46, 22, 0.3); border: 1px solid #14532d; }
+  .header-item.missing-high { background: rgba(69, 10, 10, 0.3); border: 1px solid #7f1d1d; }
+  .header-item.missing-low { background: rgba(71, 52, 6, 0.3); border: 1px solid #713f12; }
+  .header-top { display: flex; align-items: center; justify-content: space-between; }
+  .header-name-row { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.green { background: #22c55e; }
+  .dot.red { background: #ef4444; }
+  .header-name { font-size: 14px; font-weight: 500; font-family: monospace; }
+  .severity-badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 9999px;
+  }
+  .severity-badge.critical { background: #7f1d1d; color: #fca5a5; }
+  .severity-badge.high { background: rgba(127, 29, 29, 0.6); color: #fca5a5; }
+  .severity-badge.medium { background: rgba(113, 63, 18, 0.6); color: #fde047; }
+  .severity-badge.low { background: #1f2937; color: #9ca3af; }
+  .header-desc { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+  .header-rec { font-size: 12px; color: #fb923c; margin-top: 4px; }
+  .header-value { font-size: 12px; color: #6b7280; margin-top: 4px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Domain card */
+  .info-card {
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 12px; margin-bottom: 12px;
+  }
+  .info-card .card-title { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+  .info-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .info-row:last-child { margin-bottom: 0; }
+  .info-row .k { color: #9ca3af; }
+  .info-row .v { color: #d1d5db; }
+  .info-row .v.good { color: #4ade80; }
+  .info-row .v.bad { color: #f87171; }
+  .domain-name { font-size: 14px; font-weight: 500; font-family: monospace; }
+
+  /* Indicator */
+  .indicator-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .indicator-row:last-child { margin-bottom: 0; }
+  .indicator-row .k { color: #9ca3af; }
+  .clean { color: #4ade80; }
+  .detected { color: #f87171; font-weight: 500; }
+
+  /* Reputation dot */
+  .rep-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .rep-dot.safe { background: #22c55e; }
+  .rep-dot.suspicious { background: #eab308; }
+  .rep-dot.malicious { background: #ef4444; }
+  .rep-dot.unknown { background: #6b7280; }
+
+  /* History */
+  .history-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 6px;
+  }
+  .history-item:last-child { margin-bottom: 0; }
+  .history-host { font-size: 11px; color: #9ca3af; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px; }
+  .history-score { font-size: 12px; font-weight: 700; }
+  .history-score.safe { color: #4ade80; }
+  .history-score.moderate { color: #facc15; }
+  .history-score.suspicious { color: #fb923c; }
+  .history-score.dangerous { color: #f87171; }
+
+  /* AI Chat */
+  .chat-empty { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; gap: 12px; text-align: center; }
+  .chat-icon {
+    width: 48px; height: 48px; background: rgba(37, 99, 235, 0.2);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    margin-bottom: 4px;
+  }
+  .chat-icon svg { width: 24px; height: 24px; color: #60a5fa; }
+  .chat-empty .title { font-size: 14px; font-weight: 500; color: #d1d5db; }
+  .chat-empty .sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .quick-btn {
+    width: 100%; text-align: left; font-size: 12px; padding: 10px 12px;
+    background: #1f2937; border: 1px solid #374151; border-radius: 8px;
+    color: #d1d5db; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+  }
+  .quick-btn:hover { background: #283548; border-color: #4b5563; }
+  .quick-list { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 4px; }
+
+  /* No AI setup */
+  .setup-card {
+    background: #111827; border: 1px solid #1f2937; border-radius: 8px;
+    padding: 12px; font-size: 12px; color: #9ca3af; width: 100%; text-align: left;
+  }
+  .setup-card .stitle { font-weight: 500; color: #d1d5db; margin-bottom: 4px; }
+  .setup-card .provider { font-size: 11px; margin-top: 8px; }
+  .setup-card .provider .p-name { font-weight: 500; }
+  .p-llama { color: #4ade80; }
+  .p-gemini { color: #60a5fa; }
+  .p-openai { color: #c084fc; }
+  .setup-link { font-size: 12px; color: #60a5fa; background: none; border: none; cursor: pointer; margin-top: 8px; }
+  .setup-link:hover { color: #93c5fd; }
+
+  /* Chat messages */
+  .chat-wrap { display: flex; flex-direction: column; height: 400px; }
+  .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+  .msg { display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .msg.assistant { justify-content: flex-start; }
+  .msg-bubble {
+    max-width: 85%; border-radius: 16px; padding: 8px 12px;
+    font-size: 13px; line-height: 1.6;
+  }
+  .msg.user .msg-bubble { background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.assistant .msg-bubble { background: #1f2937; color: #e5e7eb; border-bottom-left-radius: 4px; }
+  .typing-dots { display: flex; gap: 4px; padding: 10px 12px; background: #1f2937; border-radius: 16px; border-bottom-left-radius: 4px; }
+  .typing-dot {
+    width: 6px; height: 6px; background: #6b7280; border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+
+  /* Chat input */
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input {
+    flex: 1; background: #1f2937; border: 1px solid #374151; border-radius: 8px;
+    padding: 8px 12px; font-size: 14px; color: #f9fafb; outline: none;
+    transition: border-color 0.15s;
+  }
+  .chat-input::placeholder { color: #6b7280; }
+  .chat-input:focus { border-color: #3b82f6; }
+  .send-btn {
+    background: #2563eb; color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .send-btn:hover { background: #1d4ed8; }
+  .send-btn:disabled { background: #374151; color: #6b7280; cursor: default; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    </div>
+    <span class="header-title">SecurityCrew</span>
+    <span id="aiBadge" class="ai-badge off" style="display:none">No AI</span>
+  </div>
+  <div class="header-right">
+    <button id="settingsBtn" class="icon-btn" title="Settings">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    </button>
+    <button id="scanBtn" class="scan-btn">Scan</button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs" id="tabsBar" style="display:none">
+  <button class="tab active" data-tab="score">Score</button>
+  <button class="tab" data-tab="details">Details</button>
+  <button class="tab" data-tab="chat">Ask AI</button>
+</div>
+
+<!-- Content -->
+<div class="content" id="mainContent">
+
+  <!-- Loading -->
+  <div id="loadingState" class="center-state">
+    <div class="spinner"></div>
+    <p>Scanning...</p>
+  </div>
+
+  <!-- Error -->
+  <div id="errorState" class="center-state" style="display:none">
+    <div class="error-icon">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+    </div>
+    <p id="errorText">Something went wrong.</p>
+    <button class="retry" id="retryBtn">Try again</button>
+  </div>
+
+  <!-- Score Tab -->
+  <div id="scoreTab" class="tab-panel" style="display:none">
+    <div class="url-bar" id="urlBar"></div>
+
+    <div class="gauge-wrap">
+      <div class="gauge">
+        <svg viewBox="0 0 100 100">
+          <circle class="gauge-track" cx="50" cy="50" r="42" />
+          <circle class="gauge-fill" id="gaugeFill" cx="50" cy="50" r="42"
+            stroke-dasharray="263.89" stroke-dashoffset="263.89" />
+        </svg>
+        <div class="gauge-label">
+          <span class="gauge-score" id="gaugeScore">0</span>
+          <span class="gauge-grade" id="gaugeGrade">-</span>
+        </div>
+      </div>
+      <div class="risk-row" id="riskRow"></div>
+    </div>
+
+    <div class="stat-grid" id="statGrid"></div>
+
+    <div class="summary-box" id="summaryBox" style="display:none">
+      <div class="summary-header">
+        <span class="title" id="summaryTitle">Summary</span>
+        <button class="refresh" id="refreshSummary">Refresh</button>
+      </div>
+      <div class="summary-text" id="summaryText"></div>
+    </div>
+
+    <div class="breakdown-box" id="breakdownBox" style="display:none">
+      <div class="breakdown-title">Breakdown</div>
+      <div id="breakdownBars"></div>
+    </div>
+  </div>
+
+  <!-- Details Tab -->
+  <div id="detailsTab" class="tab-panel" style="display:none">
+    <div id="headersList"></div>
+    <div id="domainSection"></div>
+    <div id="historySection"></div>
+  </div>
+
+  <!-- Chat Tab -->
+  <div id="chatTab" class="tab-panel" style="display:none"></div>
+
+</div>
+
+<script>
+(function() {
+  let report = null;
+  let history = [];
+  let aiAvailable = false;
+  let chatMessages = [];
+  let chatLoading = false;
+
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
+
+  // --- Init ---
+  chrome.runtime.sendMessage({ type: "CHECK_AI_SERVER" }).then((r) => {
+    aiAvailable = r?.available ?? false;
+    updateAIBadge();
+  }).catch(() => { aiAvailable = false; updateAIBadge(); });
+
+  chrome.runtime.sendMessage({ type: "GET_HISTORY" }).then((d) => {
+    history = d || [];
+  }).catch(() => {});
+
+  analyzeTab();
+
+  // --- Settings ---
+  $("#settingsBtn").addEventListener("click", () => chrome.runtime.openOptionsPage());
+  $("#retryBtn").addEventListener("click", analyzeTab);
+  $("#scanBtn").addEventListener("click", analyzeTab);
+
+  // --- Tabs ---
+  $$(".tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      $$(".tab").forEach((t) => t.classList.remove("active"));
+      btn.classList.add("active");
+      $$(".tab-panel").forEach((p) => { p.style.display = "none"; p.classList.remove("active"); });
+      const panel = $("#" + btn.dataset.tab + "Tab");
+      panel.style.display = "block";
+      panel.classList.add("active");
+      if (btn.dataset.tab === "chat") renderChat();
+    });
+  });
+
+  // --- Analyze ---
+  async function analyzeTab() {
+    showState("loading");
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.url || !tab.url.startsWith("http")) {
+        showError("Navigate to a website to check its security.");
+        return;
+      }
+      const resp = await chrome.runtime.sendMessage({ type: "ANALYZE_URL", url: tab.url, tabId: tab.id });
+      if (resp) {
+        report = resp;
+        showState("score");
+        renderScore();
+        renderDetails();
+      } else {
+        showError("Something went wrong. Try again.");
+      }
+    } catch {
+      showError("Something went wrong. Try again.");
+    }
+  }
+
+  function showState(state) {
+    $("#loadingState").style.display = state === "loading" ? "flex" : "none";
+    $("#errorState").style.display = state === "error" ? "flex" : "none";
+    const showReport = state === "score";
+    $("#tabsBar").style.display = showReport ? "flex" : "none";
+    ["scoreTab", "detailsTab", "chatTab"].forEach((id) => {
+      const el = $("#" + id);
+      if (showReport) {
+        el.style.display = id === "scoreTab" ? "block" : "none";
+        el.classList.toggle("active", id === "scoreTab");
+      } else {
+        el.style.display = "none";
+        el.classList.remove("active");
+      }
+    });
+    $$(".tab").forEach((t) => t.classList.remove("active"));
+    if (showReport) $$(".tab")[0].classList.add("active");
+  }
+
+  function showError(msg) {
+    showState("error");
+    $("#errorText").textContent = msg;
+  }
+
+  // --- Score ---
+  function renderScore() {
+    if (!report) return;
+    const s = report.score;
+    const color = s.total >= 80 ? "#22c55e" : s.total >= 60 ? "#eab308" : s.total >= 30 ? "#f97316" : "#ef4444";
+    const circ = 2 * Math.PI * 42;
+    const offset = circ - (s.total / 100) * circ;
+
+    $("#urlBar").textContent = report.url;
+    const fill = $("#gaugeFill");
+    fill.setAttribute("stroke", color);
+    fill.style.strokeDashoffset = offset;
+    $("#gaugeScore").textContent = s.total;
+    $("#gaugeScore").style.color = color;
+    $("#gaugeGrade").textContent = s.grade;
+
+    // Risk
+    const riskMap = {
+      safe: { text: "Looks Safe", color: "text-green-400", svg: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', cls: "green" },
+      moderate: { text: "Use Caution", color: "text-yellow-400", svg: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>', cls: "yellow" },
+      suspicious: { text: "Suspicious", color: "text-orange-400", svg: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>', cls: "orange" },
+      dangerous: { text: "Dangerous", color: "text-red-400", svg: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', cls: "red" },
+    };
+    const r = riskMap[s.riskLevel] || riskMap.safe;
+    $("#riskRow").innerHTML = '<span style="color:' + (r.cls === "green" ? "#4ade80" : r.cls === "yellow" ? "#facc15" : r.cls === "orange" ? "#fb923c" : "#f87171") + '">' + r.svg + '</span><span class="risk-label" style="color:' + (r.cls === "green" ? "#4ade80" : r.cls === "yellow" ? "#facc15" : r.cls === "orange" ? "#fb923c" : "#f87171") + '">' + r.text + '</span>';
+
+    // Stats
+    const hCount = report.headers.filter((h) => h.present).length;
+    $("#statGrid").innerHTML =
+      statCard("HTTPS", report.https ? "Yes" : "No", report.https) +
+      statCard("Certificate", report.tls.valid ? "Valid" : "Invalid", report.tls.valid) +
+      statCard("Headers", hCount + "/" + report.headers.length, hCount > 4) +
+      statCard("Reputation", report.reputation.status, report.reputation.status === "safe");
+
+    // Summary
+    if (report.aiSummary) {
+      $("#summaryBox").style.display = "block";
+      $("#summaryTitle").textContent = aiAvailable ? "AI Summary" : "Summary";
+      $("#summaryText").textContent = report.aiSummary;
+    } else {
+      $("#summaryBox").style.display = "none";
+    }
+
+    // Breakdown
+    if (s.breakdown) {
+      $("#breakdownBox").style.display = "block";
+      const items = [
+        { label: "HTTPS", score: s.breakdown.https },
+        { label: "TLS/SSL", score: s.breakdown.tls },
+        { label: "Headers", score: s.breakdown.headers },
+        { label: "Reputation", score: s.breakdown.reputation },
+        { label: "Phishing", score: s.breakdown.phishing },
+        { label: "Forms", score: s.breakdown.formSafety },
+      ];
+      $("#breakdownBars").innerHTML = items.map((item) => {
+        const cls = item.score >= 80 ? "green" : item.score >= 50 ? "yellow" : item.score >= 25 ? "orange" : "red";
+        return '<div class="bar-row"><span class="bar-label">' + item.label + '</span><div class="bar-track"><div class="bar-fill ' + cls + '" style="width:' + item.score + '%"></div></div><span class="bar-value">' + item.score + '</span></div>';
+      }).join("");
+    } else {
+      $("#breakdownBox").style.display = "none";
+    }
+  }
+
+  function statCard(label, value, good) {
+    return '<div class="stat-card"><div class="label">' + label + '</div><div class="value ' + (good ? "good" : "bad") + '">' + value + '</div></div>';
+  }
+
+  // --- Refresh Summary ---
+  $("#refreshSummary").addEventListener("click", async () => {
+    if (!report) return;
+    const btn = $("#refreshSummary");
+    btn.disabled = true;
+    btn.textContent = "...";
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: "REFRESH_AI", url: report.url });
+      if (resp) { report = resp; renderScore(); }
+    } catch {}
+    btn.disabled = false;
+    btn.textContent = "Refresh";
+  });
+
+  // --- Details ---
+  function renderDetails() {
+    if (!report) return;
+    renderHeaders();
+    renderDomain();
+    renderHistory();
+  }
+
+  function renderHeaders() {
+    const h = report.headers;
+    const count = h.filter((x) => x.present).length;
+    let html = '<div class="section-title">' + count + ' of ' + h.length + ' security headers detected</div>';
+    h.forEach((hdr) => {
+      const cls = hdr.present ? "present" : (hdr.severity === "high" || hdr.severity === "critical") ? "missing-high" : "missing-low";
+      const dotCls = hdr.present ? "green" : "red";
+      let extra = "";
+      if (!hdr.present) extra = '<div class="header-rec">' + hdr.recommendation + '</div>';
+      if (hdr.present && hdr.value) extra = '<div class="header-value">' + esc(hdr.value) + '</div>';
+      html += '<div class="header-item ' + cls + '"><div class="header-top"><div class="header-name-row"><span class="dot ' + dotCls + '"></span><span class="header-name">' + esc(hdr.name) + '</span></div><span class="severity-badge ' + hdr.severity + '">' + hdr.severity + '</span></div><div class="header-desc">' + esc(hdr.description) + '</div>' + extra + '</div>';
+    });
+    $("#headersList").innerHTML = html;
+  }
+
+  function renderDomain() {
+    const d = report.domain;
+    const t = report.tls;
+    const rp = report.reputation;
+    let html = "";
+
+    // Domain
+    html += '<div class="info-card"><div class="card-title">Domain</div><div class="domain-name">' + esc(d.domain) + '</div>';
+    if (d.ageDays !== undefined) {
+      html += '<div class="info-row" style="margin-top:4px"><span class="k">Age</span><span class="v">' + (d.ageDays > 365 ? Math.floor(d.ageDays / 365) + " years" : d.ageDays + " days") + '</span></div>';
+    }
+    html += "</div>";
+
+    // TLS
+    html += '<div class="info-card"><div class="card-title">TLS Certificate</div>';
+    html += infoRow("Valid", t.valid ? "Yes" : "No", t.valid);
+    if (t.issuer) html += infoRow("Issuer", t.issuer);
+    if (t.protocol) html += infoRow("Protocol", t.protocol);
+    if (t.daysUntilExpiry !== undefined) html += infoRow("Expires in", t.daysUntilExpiry + " days", t.daysUntilExpiry > 30);
+    if (t.selfSigned) html += infoRow("Warning", "Self-signed certificate", false);
+    if (t.weakCipher) html += infoRow("Warning", "Weak cipher detected", false);
+    html += "</div>";
+
+    // Phishing
+    html += '<div class="info-card"><div class="card-title">Phishing Indicators</div>';
+    html += indicatorRow("Suspicious TLD", d.suspiciousTLD);
+    html += indicatorRow("Typosquatting", d.typosquatting);
+    html += indicatorRow("Homograph Attack", d.homographAttack);
+    html += indicatorRow("IP-based URL", d.ipBasedURL);
+    html += indicatorRow("Excessive Subdomains", d.excessiveSubdomains);
+    html += indicatorRow("URL Shortener", d.urlShortener);
+    html += "</div>";
+
+    // Reputation
+    html += '<div class="info-card"><div class="card-title">Reputation</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="rep-dot ' + rp.status + '"></span><span style="font-size:14px;font-weight:500;text-transform:capitalize">' + rp.status + '</span></div>';
+    rp.sources.forEach((src) => {
+      const c = src.status === "safe" ? "#4ade80" : src.status === "suspicious" ? "#facc15" : src.status === "malicious" ? "#f87171" : "#9ca3af";
+      html += '<div class="info-row"><span class="k">' + esc(src.name) + '</span><span style="color:' + c + ';text-transform:capitalize;font-size:12px">' + src.status + '</span></div>';
+    });
+    html += "</div>";
+
+    $("#domainSection").innerHTML = '<div class="section-gap">' + html + '</div>';
+  }
+
+  function renderHistory() {
+    if (history.length === 0) { $("#historySection").innerHTML = ""; return; }
+    let html = '<div class="section-gap"><div class="section-title">Recent Scans</div>';
+    history.slice(0, 10).forEach((e) => {
+      let hostname = e.url;
+      try { hostname = new URL(e.url).hostname; } catch {}
+      html += '<div class="history-item"><span class="history-host">' + esc(hostname) + '</span><span class="history-score ' + e.riskLevel + '">' + e.score + '</span></div>';
+    });
+    html += "</div>";
+    $("#historySection").innerHTML = html;
+  }
+
+  function infoRow(label, value, good) {
+    const cls = good === undefined ? "" : good ? " good" : " bad";
+    return '<div class="info-row"><span class="k">' + label + '</span><span class="v' + cls + '">' + esc(value) + '</span></div>';
+  }
+
+  function indicatorRow(label, detected) {
+    return '<div class="indicator-row"><span class="k">' + label + '</span>' + (detected ? '<span class="detected">! Detected</span>' : '<span class="clean">Clean</span>') + '</div>';
+  }
+
+  // --- AI Badge ---
+  function updateAIBadge() {
+    const badge = $("#aiBadge");
+    badge.style.display = "inline";
+    badge.className = "ai-badge " + (aiAvailable ? "on" : "off");
+    badge.textContent = aiAvailable ? "AI" : "No AI";
+  }
+
+  // --- Chat ---
+  function renderChat() {
+    const container = $("#chatTab");
+    if (!aiAvailable) {
+      container.innerHTML = '<div class="chat-empty">' +
+        '<div class="chat-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/></svg></div>' +
+        '<div><div class="title">AI Chat</div><div class="sub">Ask questions about this site\'s security</div></div>' +
+        '<div class="setup-card"><div class="stitle">Setup needed</div><div>Open Settings and choose an AI provider:</div>' +
+        '<div class="provider"><span class="p-name p-llama">llama.cpp</span> &mdash; free, local</div>' +
+        '<div class="provider"><span class="p-name p-gemini">Gemini</span> &mdash; free tier available</div>' +
+        '<div class="provider"><span class="p-name p-openai">OpenAI</span> &mdash; pay per use</div></div>' +
+        '<button class="setup-link" id="chatSetupLink">Open Settings</button></div>';
+      $("#chatSetupLink").addEventListener("click", () => chrome.runtime.openOptionsPage());
+      return;
+    }
+
+    let html = '<div class="chat-wrap">';
+    html += '<div class="chat-messages" id="chatMessages"></div>';
+    html += '<div class="chat-input-row"><input class="chat-input" id="chatInput" placeholder="Ask about ' + esc(report.domain.domain) + '..." /><button class="send-btn" id="chatSend">Send</button></div>';
+    html += "</div>";
+    container.innerHTML = html;
+
+    $("#chatSend").addEventListener("click", () => sendChat());
+    $("#chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+
+    if (chatMessages.length === 0) {
+      renderChatEmpty();
+    } else {
+      renderChatMessages();
+    }
+  }
+
+  function renderChatEmpty() {
+    const site = report.domain.domain;
+    const questions = ["Is this site safe?", "What's wrong with this site?", "Should I enter my password here?", "How can I stay safe on this site?"];
+    let html = '<div class="chat-empty" style="padding-top:8px">';
+    html += '<div class="chat-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 20.105V4.875A1.875 1.875 0 015.625 3h12.75A1.875 1.875 0 0120.25 4.875v10.5A1.875 1.875 0 0118.375 17.25H7.5l-3.75 2.855z"/></svg></div>';
+    html += '<div class="title">Ask about ' + esc(site) + '</div><div class="sub">AI has the full security report</div>';
+    html += '<div class="quick-list">';
+    questions.forEach((q) => { html += '<button class="quick-btn" data-q="' + esc(q) + '">' + esc(q) + '</button>'; });
+    html += "</div></div>";
+    $("#chatMessages").innerHTML = html;
+    $$(".quick-btn").forEach((btn) => {
+      btn.addEventListener("click", () => sendChat(btn.dataset.q));
+    });
+  }
+
+  function renderChatMessages() {
+    const box = $("#chatMessages");
+    if (!box) return;
+    let html = "";
+    chatMessages.forEach((m) => {
+      const cls = m.role === "user" ? "user" : "assistant";
+      html += '<div class="msg ' + cls + '"><div class="msg-bubble">' + esc(m.content) + '</div></div>';
+    });
+    if (chatLoading) {
+      html += '<div class="msg assistant"><div class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>';
+    }
+    box.innerHTML = html;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function sendChat(text) {
+    const input = $("#chatInput");
+    const msg = text || (input ? input.value.trim() : "");
+    if (!msg || chatLoading) return;
+    if (input) input.value = "";
+    chatMessages.push({ role: "user", content: msg });
+    chatLoading = true;
+    renderChatMessages();
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: "CHAT_AI",
+        messages: chatMessages.map((m) => ({ role: m.role, content: m.content })),
+        report,
+      });
+      chatMessages.push({ role: "assistant", content: resp?.reply || "No response." });
+    } catch {
+      chatMessages.push({ role: "assistant", content: "AI is not available. Check your settings." });
+    }
+    chatLoading = false;
+    renderChatMessages();
+  }
+
+  function esc(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+})();
+</script>
+</body>
 </html>
