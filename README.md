@@ -20,17 +20,17 @@ SecurityCrew is a Chrome extension that **automatically scans every website you 
 
 ```
   ┌─────────────────────────────────────────┐
-  │  🔒 SecurityCrew                        │
+  │  SecurityCrew                            │
   │                                         │
   │         ┌─────────┐                     │
   │         │   82    │  ← Score out of 100 │
   │         │   A     │  ← Letter grade     │
   │         └─────────┘                     │
   │                                         │
-  │  ✅ HTTPS enabled                       │
-  │  ✅ Valid certificate                   │
-  │  ⚠️  Missing CSP header                 │
-  │  ✅ Good reputation                     │
+  │  [PASS] HTTPS enabled                   │
+  │  [PASS] Valid certificate               │
+  │  [WARN] Missing CSP header              │
+  │  [PASS] Good reputation                 │
   │                                         │
   │  "This site looks safe to use.          │
   │   It has HTTPS and a valid certificate. │

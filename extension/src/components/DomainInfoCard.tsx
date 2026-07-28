@@ -88,7 +88,7 @@ function IndicatorRow({ label, detected }: { label: string; detected: boolean })
     <div className="flex items-center justify-between text-xs">
       <span className="text-gray-400">{label}</span>
       {detected ? (
-        <span className="text-red-400 font-medium">⚠ Detected</span>
+        <span className="text-red-400 font-medium">! Detected</span>
       ) : (
         <span className="text-green-400">✓ Clean</span>
       )}
