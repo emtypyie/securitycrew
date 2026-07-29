@@ -25,8 +25,18 @@ async function checkLlamaCpp() {
   } catch { return false; }
 }
 
-async function checkGemini() { return getSettings().aiApiKey.length > 10; }
-async function checkOpenAI() { return getSettings().aiApiKey.length > 10; }
+async function checkGemini() {
+  const key = getSettings().aiApiKey;
+  const ok = key && key.length > 10;
+  if (!ok) console.error("SecurityCrew Gemini check failed: key length", key?.length || 0);
+  return ok;
+}
+async function checkOpenAI() {
+  const key = getSettings().aiApiKey;
+  const ok = key && key.length > 10;
+  if (!ok) console.error("SecurityCrew OpenAI check failed: key length", key?.length || 0);
+  return ok;
+}
 
 export async function isServerAvailable() {
   if (serverAvailable !== null) return serverAvailable;
@@ -51,11 +61,18 @@ async function chatLlamaCpp(messages) {
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "unknown");
+      console.error("SecurityCrew llama.cpp error:", resp.status, errText.slice(0, 200));
+      return null;
+    }
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content;
     return content && content.length > 10 ? content : null;
-  } catch { return null; }
+  } catch (e) {
+    console.error("SecurityCrew llama.cpp fetch error:", e?.message);
+    return null;
+  }
 }
 
 async function chatGemini(messages) {
@@ -77,11 +94,18 @@ async function chatGemini(messages) {
       body: JSON.stringify(body), signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "unknown");
+      console.error("SecurityCrew Gemini error:", resp.status, model, errText.slice(0, 200));
+      return null;
+    }
     const data = await resp.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     return text && text.length > 10 ? text : null;
-  } catch { return null; }
+  } catch (e) {
+    console.error("SecurityCrew Gemini fetch error:", e?.message);
+    return null;
+  }
 }
 
 async function chatOpenAI(messages) {
@@ -97,11 +121,18 @@ async function chatOpenAI(messages) {
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "unknown");
+      console.error("SecurityCrew OpenAI error:", resp.status, model, errText.slice(0, 200));
+      return null;
+    }
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content;
     return content && content.length > 10 ? content : null;
-  } catch { return null; }
+  } catch (e) {
+    console.error("SecurityCrew OpenAI fetch error:", e?.message);
+    return null;
+  }
 }
 
 async function chatCompletion(messages) {
